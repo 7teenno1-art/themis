@@ -1,0 +1,9 @@
+# Разрешение обходить скрытые каталоги (graphify/detect.py: _load_graphifyinclude).
+# По умолчанию движок не заходит в каталоги на точку, и вся агентская обвязка дома
+# оставалась вне графа: проводник дела .claude/workflows/themiz-pipeline.js, навыки,
+# описания агентов. Агент чужого клона не видел, чем вообще ведется дело.
+# Материалы доверителей сюда не входят: их периметр закрыт в .graphifyignore.
+.claude/workflows/
+.claude/skills/
+.claude/agents/
+.claude/commands/

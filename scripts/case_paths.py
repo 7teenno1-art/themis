@@ -34,10 +34,14 @@
 недоделанным.
 """
 import argparse
+import contextlib
+import fcntl
 import json
+import math
 import os
 import re
 import sys
+import time
 import unicodedata
 from pathlib import Path
 
@@ -91,14 +95,36 @@ def ready(case):
     return _p(case) / READY
 
 
+def _contract_block(*paths, **values):
+    sources = [{"path": _p(path), "exists": _p(path).is_file()} for path in paths]
+    return {"sources": sources, "exists": all(s["exists"] for s in sources), **values}
+
+
 def document_contract(case):
-    """Канонические файлы документа и потолок содержательной рецензии."""
+    """Файлы результата и шесть блоков требований с наличием источников."""
     case = _p(case)
+    root = Path(__file__).resolve().parent.parent
+    council = context(case) / "_council/council_verdict.md"
+    legacy_council = context(case) / "_practice/council_verdict.md"
+    if not council.is_file() and legacy_council.is_file():
+        council = legacy_council
     return {
         "draft_md": drafts(case) / DRAFT_NAME,
         "ready_md": ready(case) / READY_MD_NAME,
         "ready_docx": ready(case) / READY_DOCX_NAME,
         "review_rounds": MAX_REVIEW_ROUNDS,
+        "blocks": {
+            "content": _contract_block(brief(case), positions(case)),
+            "sources": _contract_block(practice(case), council),
+            "canon": _contract_block(working(case) / "canon_formulirovki.md"),
+            "form": _contract_block(
+                root / "scripts/create_docx.py",
+                root / ".claude/skills/doc-drafter/SKILL.md"),
+            "admission": _contract_block(root / "scripts/verdict.py"),
+            "home": _contract_block(
+                Path(__file__).resolve(),
+                ready_dir=ready(case), ready_name=READY_DOCX_NAME),
+        },
     }
 
 
@@ -150,6 +176,201 @@ def review_log(case):
 def verdicts(case):
     """Журнал вердиктов — прямо в drafts, ВНЕ освобожденного сторожем _working (D03)."""
     return drafts(case) / VERDICTS_NAME
+
+
+# ── Межсессионный лок дела (REQ-10) ──────────────────────────────────────────
+CASE_LOCK_NAME = ".lock"
+CASE_LOCK_STALE_SECONDS = 6 * 60 * 60
+# ponytail: повторно выданный PID может держать дело только до TTL; если это
+# проявится, добавить время старта процесса.
+
+
+def case_lock_path(case):
+    return context(case) / CASE_LOCK_NAME
+
+
+def _case_lock_process_alive(pid):
+    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except (OverflowError, ProcessLookupError):
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _case_lock_result(state, owner=None, reason="", ok=True):
+    owner = dict(owner) if isinstance(owner, dict) else {}
+    return {
+        "ok": ok,
+        "locked": state in {"live", "owned", "acquired", "locked", "invalid", "busy"},
+        "state": state,
+        "session": owner.get("session", ""),
+        "pid": owner.get("pid"),
+        "timestamp": owner.get("timestamp"),
+        "reason": reason,
+    }
+
+
+def _case_lock_args(case, now, max_age):
+    case = _p(case)
+    path = case_lock_path(case)
+    if not case.is_dir():
+        raise ValueError(f"каталог дела не найден: {case}")
+    if not path.parent.is_dir():
+        raise ValueError(f"каталог состояния дела не найден: {path.parent}")
+    if isinstance(now, bool) or isinstance(max_age, bool):
+        raise ValueError("now и max_age должны быть числами")
+    now = time.time() if now is None else float(now)
+    max_age = float(max_age)
+    if not math.isfinite(now) or not math.isfinite(max_age) or max_age <= 0:
+        raise ValueError("now и max_age должны быть конечными, max_age > 0")
+    return path, now, max_age
+
+
+@contextlib.contextmanager
+def _case_lock_mutex(path):
+    """Один mutex без второго файла: flock на существующем context-каталоге."""
+    fd = os.open(path.parent, os.O_RDONLY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+def _case_lock_invalid(path, mtime, now, max_age, reason):
+    if now - mtime >= max_age:
+        path.unlink(missing_ok=True)
+        return _case_lock_result(
+            "stale_removed", reason=f"снят протухший лок: {reason}")
+    return _case_lock_result("invalid", reason=reason, ok=False)
+
+
+def _case_lock_inspect(path, now, max_age):
+    try:
+        mtime = path.stat().st_mtime
+    except FileNotFoundError:
+        return _case_lock_result("free")
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError) as exc:
+        return _case_lock_invalid(
+            path, mtime, now, max_age,
+            f"лок поврежден: {type(exc).__name__}")
+
+    pid = record.get("pid") if isinstance(record, dict) else None
+    timestamp = record.get("timestamp") if isinstance(record, dict) else None
+    session = record.get("session") if isinstance(record, dict) else None
+    try:
+        timestamp = float(timestamp) if type(timestamp) in (int, float) else math.nan
+    except OverflowError:
+        timestamp = math.nan
+    valid = (
+        isinstance(pid, int) and not isinstance(pid, bool) and pid > 0
+        and math.isfinite(timestamp)
+        and isinstance(session, str) and bool(session.strip())
+    )
+    if not valid:
+        return _case_lock_invalid(
+            path, mtime, now, max_age,
+            "лок поврежден: обязательные поля неверны")
+
+    owner = {"pid": pid, "timestamp": timestamp, "session": session.strip()}
+    stale = []
+    if not _case_lock_process_alive(pid):
+        stale.append(f"процесс {pid} не жив")
+    if now - owner["timestamp"] >= max_age:
+        stale.append(f"отметка старше порога {int(max_age)} с")
+    if stale:
+        path.unlink()
+        return _case_lock_result(
+            "stale_removed", owner,
+            reason="снят протухший лок: " + "; ".join(stale))
+    return _case_lock_result("live", owner)
+
+
+def _case_lock_write_new(path, owner):
+    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(owner, stream, ensure_ascii=False, separators=(",", ":"))
+            stream.write("\n")
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+
+
+def case_lock_status(case, now=None, max_age=CASE_LOCK_STALE_SECONDS):
+    path, now, max_age = _case_lock_args(case, now, max_age)
+    with _case_lock_mutex(path):
+        return _case_lock_inspect(path, now, max_age)
+
+
+def case_lock_acquire(case, session, pid=None, now=None,
+                      max_age=CASE_LOCK_STALE_SECONDS):
+    session = session.strip() if isinstance(session, str) else ""
+    pid = os.getpid() if pid is None else pid
+    if not session:
+        raise ValueError("имя сессии обязательно")
+    if not _case_lock_process_alive(pid):
+        raise ValueError(f"процесс владельца не жив: {pid}")
+    path, now, max_age = _case_lock_args(case, now, max_age)
+    owner = {"pid": pid, "timestamp": now, "session": session}
+    with _case_lock_mutex(path):
+        current = _case_lock_inspect(path, now, max_age)
+        removed_reason = current["reason"] if current["state"] == "stale_removed" else ""
+        if current["locked"]:
+            if not current["ok"]:
+                return current
+            if current["session"] != session:
+                reason = f"дело занято: сессия {current['session']} (pid {current['pid']})"
+                return _case_lock_result(
+                    "locked", current, reason, ok=False)
+            owner["timestamp"] = math.nextafter(
+                max(now, current["timestamp"]), math.inf)
+            path.write_text(
+                json.dumps(owner, ensure_ascii=False, separators=(",", ":")) + "\n",
+                encoding="utf-8",
+            )
+            return _case_lock_result("owned", owner)
+        try:
+            _case_lock_write_new(path, owner)
+        except FileExistsError:
+            return _case_lock_result(
+                "busy", reason="лок меняется другой сессией", ok=False)
+        return _case_lock_result("acquired", owner, removed_reason)
+
+
+def case_lock_release(case, session, pid=None, now=None,
+                      max_age=CASE_LOCK_STALE_SECONDS, timestamp=None):
+    session = session.strip() if isinstance(session, str) else ""
+    if not session:
+        raise ValueError("имя сессии обязательно")
+    if pid is not None and (
+            isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0):
+        raise ValueError("pid должен быть положительным целым")
+    if timestamp is not None and (
+            type(timestamp) not in (int, float) or not math.isfinite(timestamp)):
+        raise ValueError("timestamp должен быть конечным числом")
+    path, now, max_age = _case_lock_args(case, now, max_age)
+    with _case_lock_mutex(path):
+        current = _case_lock_inspect(path, now, max_age)
+        if not current["locked"]:
+            return current
+        if not current["ok"]:
+            return current
+        if (current["session"] != session
+                or (pid is not None and current["pid"] != pid)
+                or (timestamp is not None and current["timestamp"] != timestamp)):
+            reason = f"чужой лок: сессия {current['session']} (pid {current['pid']})"
+            return _case_lock_result(
+                "locked", current, reason, ok=False)
+        path.unlink()
+        return _case_lock_result("released", current)
 
 
 # ── Машинное состояние прогона (M01) ──────────────────────────────────────────
@@ -365,12 +586,32 @@ def selftest():
     assert READY == "GOTOVO" and READY.isascii(), "имя папки готовых обязано быть латиницей"
     assert AGENT_DIR.startswith("."), "кухня обязана быть скрытой"
     assert all(p.isascii() for p in (AGENT_DIR, INTAKE, HEARINGS, READY, CONTEXT, DRAFTS))
-    assert document_contract("cases/x/y") == {
+    contract = document_contract("cases/x/y")
+    assert {key: contract[key] for key in (
+        "draft_md", "ready_md", "ready_docx", "review_rounds")
+    } == {
         "draft_md": Path("cases/x/y/.agent/drafts/{document}.md"),
         "ready_md": Path("cases/x/y/GOTOVO/{document}.md"),
         "ready_docx": Path("cases/x/y/GOTOVO/{document}.docx"),
         "review_rounds": MAX_REVIEW_ROUNDS,
     }
+    blocks = contract["blocks"]
+    assert tuple(blocks) == (
+        "content", "sources", "canon", "form", "admission", "home"
+    ), "контракт обязан отдать ровно шесть блоков"
+    assert all(block["sources"] for block in blocks.values()), "блок без пути источника"
+    assert all("path" in source and "exists" in source
+               for block in blocks.values() for source in block["sources"]), \
+        "источник без пути или признака наличия"
+    assert blocks["form"]["exists"] and blocks["admission"]["exists"] \
+        and blocks["home"]["exists"], "системный источник контракта не найден"
+    assert not blocks["canon"]["exists"], "несуществующий источник объявлен существующим"
+    assert blocks["canon"]["sources"][0] == {
+        "path": Path("cases/x/y/.agent/context/_working/canon_formulirovki.md"),
+        "exists": False,
+    }, "отсутствующий источник пропущен или не помечен"
+    assert blocks["home"]["ready_dir"] == Path("cases/x/y/GOTOVO")
+    assert blocks["home"]["ready_name"] == READY_DOCX_NAME
 
     root = Path(__file__).resolve().parent.parent
     verdict_config_path = root / "config/verdict.json"
@@ -413,6 +654,27 @@ def selftest():
     assert modernize("02_hearings/x") == "02_hearings/x", "заседания тронуты"
 
     with tempfile.TemporaryDirectory(prefix="casepaths-selftest-") as tmp:
+        untouched = Path(tmp) / "contract-only"
+        document_contract(untouched)
+        assert not untouched.exists(), "чтение контракта создало каталог дела"
+
+        mixed = Path(tmp) / "mixed-content"
+        mixed_brief = mixed / ".agent/context/_working/brief.md"
+        mixed_brief.parent.mkdir(parents=True)
+        mixed_brief.write_text("source\n", encoding="utf-8")
+        mixed_content = document_contract(mixed)["blocks"]["content"]
+        assert [s["exists"] for s in mixed_content["sources"]] == [True, False] \
+            and not mixed_content["exists"], "частично полный блок объявлен полным"
+
+        legacy = Path(tmp) / "legacy-council"
+        (legacy / ".agent/context/_practice").mkdir(parents=True)
+        (legacy / ".agent/context/practice.md").write_text("source\n", encoding="utf-8")
+        old_verdict = legacy / ".agent/context/_practice/council_verdict.md"
+        old_verdict.write_text("source\n", encoding="utf-8")
+        sources_block = document_contract(legacy)["blocks"]["sources"]
+        assert sources_block["exists"] and sources_block["sources"][1]["path"] == old_verdict, \
+            "существующий старый путь вердикта совета объявлен отсутствующим"
+
         case = Path(tmp) / "delo-2026"
         for d in ("01_context/_working", "03_drafts/_baselines", "04_archive",
                   "00_intake", "02_hearings"):
@@ -444,6 +706,43 @@ def selftest():
         assert st == {"guide": "themiz-pipeline", "preflight_code": 0}, \
             f"аддитивная запись прогона сломана: {st}"
 
+        # REQ-10: лок меняет только .lock; живой владелец назван, старый/мертвый снят.
+        lock_case = Path(tmp) / "lock-client" / "lock-case"
+        context(lock_case).mkdir(parents=True)
+        before_lock = {p.relative_to(lock_case) for p in lock_case.rglob("*")}
+        now = time.time()
+        acquired = case_lock_acquire(lock_case, "session-one", os.getpid(), now)
+        assert acquired["state"] == "acquired" and acquired["ok"], acquired
+        assert set(json.loads(case_lock_path(lock_case).read_text())) == {
+            "pid", "timestamp", "session"}
+        assert case_lock_status(lock_case, now + 1)["state"] == "live"
+        foreign = case_lock_acquire(lock_case, "session-two", os.getpid(), now + 2)
+        assert not foreign["ok"] and "session-one" in foreign["reason"], foreign
+        owned = case_lock_acquire(lock_case, "session-one", os.getpid(), now + 3)
+        assert owned["state"] == "owned", owned
+        assert not case_lock_release(
+            lock_case, "session-one", os.getpid(),
+            timestamp=acquired["timestamp"])["ok"], "старый захват снял свежий лок"
+        assert case_lock_release(
+            lock_case, "session-one", os.getpid(),
+            timestamp=owned["timestamp"])["state"] == "released"
+        assert not case_lock_path(lock_case).exists(), "снятый лок остался на диске"
+
+        case_lock_path(lock_case).write_text(json.dumps({
+            "pid": 999_999_999, "timestamp": now, "session": "dead-session",
+        }), encoding="utf-8")
+        dead = case_lock_status(lock_case, now + 4)
+        assert dead["state"] == "stale_removed" and "не жив" in dead["reason"], dead
+
+        case_lock_acquire(
+            lock_case, "old-session", os.getpid(),
+            now - CASE_LOCK_STALE_SECONDS - 1)
+        old = case_lock_status(lock_case, now)
+        assert old["state"] == "stale_removed" and "старше порога" in old["reason"], old
+        assert not case_lock_path(lock_case).exists()
+        assert {p.relative_to(lock_case) for p in lock_case.rglob("*")} == before_lock, \
+            "дело изменено помимо .lock"
+
     # Unicode: NFD и NFC одного имени обязаны считаться одним делом
     nfd_name = unicodedata.normalize("NFD", "кузнецова-йогурт")
     nfc_name = unicodedata.normalize("NFC", "кузнецова-йогурт")
@@ -454,7 +753,8 @@ def selftest():
     # Турецкая «ı» без точки — не латинская «i»: разные буквы, коллизией не считаются.
     # Такое имя на диске есть; фикстура вымышленная — сторож ПД поймал реальное 19.08.2026.
     assert not collisions(["demidov-ab", "demıdov-ab"]), "разные буквы объявлены коллизией"
-    print("selftest: один дом готового документа, один лимит рецензии, инструкции ≤200 строк; "
+    print("selftest: один дом готового документа, один лимит рецензии, лок дела, "
+          "инструкции ≤200 строк; "
           "контракт латиницей, скрытая кухня, порядок замен, неприкосновенные каталоги, "
           "идемпотентность переезда, NFD/NFC — ок")
     return 0
@@ -475,6 +775,9 @@ def main():
         return selftest()
     if a.document_contract is not None:
         for key, value in document_contract(a.document_contract).items():
+            if key == "blocks":
+                value = json.dumps(value, ensure_ascii=False, default=str,
+                                   separators=(",", ":"))
             print(f"{key}={value}")
         return 0
     if a.run_set:

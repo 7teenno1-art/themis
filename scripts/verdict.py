@@ -28,6 +28,11 @@ append-only. Раньше он лежал в `_working/` — а эту папк�
   · внеполосная подпись HMAC-SHA256 — ключ вне журнала (env `THEMIZ_VERDICT_KEY`
     либо файл ключа в каталоге секретов), проверка при чтении. Запись без
     проверяемой подписи для сборки НЕ считается вердиктом — отказ, не предупреждение.
+    Ключ прибор сам НЕ создает (REQ-06/LIM-03): отсутствие ключа владельца —
+    запись без подписи с причиной открытым текстом; путь ключа внутри дерева
+    репозитория (включая каталог дела) отвергается кодом 2 — ключ рядом с
+    журналом обнуляет гарантию, правящий журнал правит и ключ (самодельные
+    ключи агента рядом с журналом в живом деле, разбор 06.09.2026).
 
 Выход: 0 — можно; 1 — нельзя (причина на stdout); 2 — вызов неверен.
 """
@@ -137,34 +142,34 @@ PREFLIGHT_SIGNED_FIELDS = (
     "kind", "document", "path", "sha256", "context_sha256", "at", "source", "green", "checks",
 )
 _KEYFILE_DEFAULT = Path.home() / ".secrets" / "themiz-verdict.key"
+# Причина открытым текстом — ровно как помечены 42 записи живого журнала
+# (разбор в .agent/archive/2026-09-06_falshivye-klyuchi того дела).
+UNSIGNED_REASON = "подпись отсутствует: ключ недоступен"
 
 
 def _sign_key():
-    """Ключ подписи ВНЕ журнала: env THEMIZ_VERDICT_KEY либо файл ключа.
-    Файла нет — генерируем один раз (каталог 700, файл 600). Секрет в git/логи не
-    уходит — только в каталог секретов (санкция rules/structure.md)."""
+    """Ключ подписи ВНЕ журнала: env THEMIZ_VERDICT_KEY либо файл ключа ВНЕ
+    дерева репозитория. Путь внутри репозитория (а значит и внутри каталога
+    дела) — отказ кодом 2: ключ рядом с журналом не ключ, а декорация.
+    Файла нет — ключа нет (None): прибор ключ владельца не выдумывает, запись
+    идет без подписи с причиной (REQ-06/LIM-03)."""
     k = os.environ.get("THEMIZ_VERDICT_KEY")
     if k:
         return k.encode()
     kf = Path(os.environ.get("THEMIZ_VERDICT_KEYFILE", _KEYFILE_DEFAULT))
+    repo = Path(__file__).resolve().parent.parent
+    try:
+        kf.resolve().relative_to(repo)
+    except ValueError:
+        pass                        # вне дерева репозитория — законное место
+    else:
+        print(f"⛔ КЛЮЧ ПОДПИСИ ОТКЛОНЕН — путь {kf} внутри дерева репозитория "
+              f"(каталога дела): правящий журнал правил бы и ключ. Ключ держать "
+              f"вне репозитория (например, {_KEYFILE_DEFAULT}).", file=sys.stderr)
+        raise SystemExit(obs.KOD_NE_RABOTAL)
     if kf.is_file():
         return kf.read_bytes().strip()
-    kf.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    # Первый вердикт может одновременно писаться по двум делам. Отдельные
-    # журнальные локи тогда не пересекаются, поэтому создание общего ключа
-    # сериализуется своим локом.
-    import fcntl
-    with open(kf.with_name(kf.name + ".lock"), "a+b") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        if kf.is_file():
-            return kf.read_bytes().strip()
-        key = secrets.token_hex(32).encode()
-        fd = os.open(kf, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "wb") as f:
-            f.write(key)
-            f.flush()
-            os.fsync(f.fileno())
-        return key
+    return None
 
 
 def _canon(entry):
@@ -174,7 +179,21 @@ def _canon(entry):
 
 
 def _sig(entry):
-    return hmac.new(_sign_key(), _canon(entry), hashlib.sha256).hexdigest()
+    key = _sign_key()
+    if key is None:
+        return None
+    return hmac.new(key, _canon(entry), hashlib.sha256).hexdigest()
+
+
+def _sign_entry(entry):
+    """Подписать запись на месте. Ключа владельца нет — запись уходит без
+    подписи с причиной открытым текстом; ключ прибор не создает (REQ-06)."""
+    sig = _sig(entry)
+    if sig is None:
+        entry["signed"] = False
+        entry["unsigned_reason"] = UNSIGNED_REASON
+    else:
+        entry["sig"] = sig
 
 
 def _verified(entry):
@@ -183,9 +202,10 @@ def _verified(entry):
     if not s or not entry.get("source"):
         return False
     try:
-        return hmac.compare_digest(str(s), _sig(entry))
+        expected = _sig(entry)
     except (TypeError, ValueError):
         return False
+    return expected is not None and hmac.compare_digest(str(s), expected)
 
 
 SCAN = find_scan_legal()
@@ -631,7 +651,7 @@ def _write_preflight(md, digest, green, checks, context_digest=None):
             "green": bool(green),
             "checks": checks,
         }
-        entry["sig"] = _sig(entry)
+        _sign_entry(entry)
         journal.write(json.dumps(entry, ensure_ascii=False) + "\n")
         journal.flush()
         os.fsync(journal.fileno())
@@ -910,7 +930,7 @@ def record(md, verdict, round_no=None, source=None):
             "at": time.strftime("%d.%m.%Y %H:%M:%S"),
             "source": src,
         }
-        entry["sig"] = _sig(entry)      # внеполосная подпись — ключ вне журнала
+        _sign_entry(entry)          # внеполосная подпись — ключ вне журнала
         journal.write(json.dumps(entry, ensure_ascii=False) + "\n")
         journal.flush()
         os.fsync(journal.fileno())
@@ -1413,13 +1433,69 @@ def selftest():
         assert [e["round"] for e in history(race)] == [1], \
             "параллельная запись создала два одинаковых номера"
 
+        # ── REQ-06/LIM-03: ключ подписи не подменяется и не выдумывается ──
+        saved_env_key = os.environ.pop("THEMIZ_VERDICT_KEY")
+        saved_keyfile = os.environ.get("THEMIZ_VERDICT_KEYFILE")
+        try:
+            # 1. Путь ключа внутри дерева репозитория (и каталога дела) — отказ
+            # кодом 2 с причиной в stderr; файл ключа не появляется.
+            inside = Path(__file__).resolve().parent.parent / "cases" / \
+                "_t206_selftest" / "verdict.key"
+            os.environ["THEMIZ_VERDICT_KEYFILE"] = str(inside)
+            buf = io.StringIO()
+            try:
+                with redirect_stderr(buf):
+                    _sign_key()
+                assert False, "путь ключа внутри дерева репозитория принят"
+            except SystemExit as exc:
+                assert exc.code == obs.KOD_NE_RABOTAL, f"отказ не кодом 2: {exc.code}"
+            assert "внутри дерева репозитория" in buf.getvalue(), buf.getvalue()
+            assert not inside.exists(), "ключ внутри репозитория все же создан"
+
+            # 2. Ключа нет вовсе — запись без подписи с причиной открытым текстом,
+            # файла ключа на диске не появилось (прибор ключ не выдумывает).
+            missing = Path(tmp) / "home" / ".secrets" / "themiz-verdict.key"
+            os.environ["THEMIZ_VERDICT_KEYFILE"] = str(missing)
+            nokey = d / "nokey.md"
+            nokey.write_text("# Ходатайство\n\nТекст без брака.\n", encoding="utf-8")
+            entry = _write_preflight(nokey, sha(nokey), True, [{
+                "tool": "selftest", "code": obs.KOD_OK,
+                "output_sha256": hashlib.sha256(b"selftest").hexdigest(),
+            }])
+            assert "sig" not in entry and entry.get("signed") is False, entry
+            assert entry.get("unsigned_reason") == UNSIGNED_REASON, entry
+            assert not missing.exists(), "прибор сам создал ключ владельца"
+            assert not preflight_history(nokey)[-1].get("_verified"), \
+                "неподписанная запись признана проверенной"
+
+            # 3. Ключ в каталоге секретов — запись подписана, сверка проходит.
+            missing.parent.mkdir(mode=0o700, parents=True)
+            fd = os.open(missing, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(secrets.token_hex(32).encode())
+            signed_md = d / "signed.md"
+            signed_md.write_text("# Ходатайство\n\nТекст без брака.\n", encoding="utf-8")
+            entry = _write_preflight(signed_md, sha(signed_md), True, [{
+                "tool": "selftest", "code": obs.KOD_OK,
+                "output_sha256": hashlib.sha256(b"selftest").hexdigest(),
+            }])
+            assert entry.get("sig"), "запись с ключом владельца не подписана"
+            assert preflight_history(signed_md)[-1].get("_verified"), \
+                "подпись ключом владельца не сверилась"
+        finally:
+            os.environ["THEMIZ_VERDICT_KEY"] = saved_env_key
+            if saved_keyfile is None:
+                os.environ.pop("THEMIZ_VERDICT_KEYFILE", None)
+            else:
+                os.environ["THEMIZ_VERDICT_KEYFILE"] = saved_keyfile
+
     print("selftest: preflight по SHA до раунда, правка отзывает preflight, "
           "журнал вне _working (D03), отказ без вердикта, отказ на ТРЕБУЕТ ПРАВОК, "
           "детект правки после одобрения, новый раунд, возврат к одобренному тексту, "
           "humanizer fail-closed, формат перед финальным вердиктом, "
           "валюты «р.» и евро, скобки-реквизиты не дыры, отзыв вердикта, "
           "машинный-раунд·лок·лимит-конфиг·READY-клапан, "
-          "ПОДПИСЬ·ИСТОЧНИК·СТАРЫЙ-АДРЕС — ок")
+          "ПОДПИСЬ·ИСТОЧНИК·СТАРЫЙ-АДРЕС·КЛЮЧ-НЕ-ПОДМЕНЯЕТСЯ — ок")
     return 0
 
 

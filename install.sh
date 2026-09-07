@@ -455,10 +455,31 @@ PIP="pip3"
 # (python3 scripts/setup_doctor.py --licenses) из фактических импортов приборов.
 # Раньше список жил здесь руками и расходился с составом в обе стороны: четыре
 # живых зависимости не ставились вовсе, а AGPL-пакет ехал незамеченным (M11).
-$PIP install --quiet -r requirements.txt 2>/dev/null || \
-$PIP install --quiet --user -r requirements.txt 2>/dev/null || \
-$PIP install --quiet --break-system-packages -r requirements.txt 2>/dev/null || \
-$PIP install -r requirements.txt
+# Предел на шаг пакетов. На машине без кеша pip идет в сеть за десятками
+# мегабайт, и на чистом доме это дольше, чем ждет любой внешний прогон
+# (изолированный прогон ворот публикации убивает установщик на 180 секундах).
+# Висящий установщик хуже отказавшего: снаружи он неотличим от поломки, и
+# человек не узнает ни причины, ни обхода. Поэтому шаг сам себя ограничивает
+# по времени и сам объясняет, что делать. Предел меняется THEMIZ_PIP_PREDEL.
+PIP_PREDEL="${THEMIZ_PIP_PREDEL:-100}"
+# Предел общий на ВСЕ попытки: их четыре, и по отдельному пределу на каждую
+# шаг все равно уезжал за десять минут (замер 07.09.2026).
+PIP_KRAY=$(( $(date +%s) + PIP_PREDEL ))
+pip_s_predelom() {
+  ostalos=$(( PIP_KRAY - $(date +%s) ))
+  [ "$ostalos" -le 0 ] && return 124
+  "$@" &
+  pip_pid=$!
+  ( sleep "$ostalos"; kill -TERM "$pip_pid" 2>/dev/null ) &
+  storozh=$!
+  wait "$pip_pid" 2>/dev/null; kod=$?
+  kill -TERM "$storozh" 2>/dev/null
+  return "$kod"
+}
+pip_s_predelom $PIP install --quiet -r requirements.txt 2>/dev/null || \
+pip_s_predelom $PIP install --quiet --user -r requirements.txt 2>/dev/null || \
+pip_s_predelom $PIP install --quiet --break-system-packages -r requirements.txt 2>/dev/null || \
+pip_s_predelom $PIP install -r requirements.txt
 # ПРОВЕРЯЕМ ПО ФАКТУ, а не по коду pip. На чужой машине системный Python бывает
 # «externally managed» (PEP 668): pip отказывает, а установщик печатал галочку и
 # шел дальше - изолированный прогон 03.09.2026 поймал ровно это, PIL не появился,
@@ -471,6 +492,8 @@ if [ -n "$NEDOSTAET" ]; then
   echo ""
   if [ "$THEMIZ_LANG" = "ru" ]; then
     echo "  ✗ Пакеты не встали:$NEDOSTAET"
+    echo "    Либо сеть медленная и шаг уперся в предел ${PIP_PREDEL} с:"
+    echo "      THEMIZ_PIP_PREDEL=600 bash install.sh"
     echo "    Похоже, системный Python защищен (PEP 668). Обходные пути:"
     echo "      python3 -m venv .venv && . .venv/bin/activate && bash install.sh"
     echo "      либо  pip3 install --user -r requirements.txt"
@@ -695,7 +718,36 @@ case "$METIDA_OTVET" in
     fi ;;
 esac
 
-python3 scripts/setup_doctor.py || DOCTOR_RC=$?
+# Проверка окружения ходит в сеть (версии CLI, свежесть корпуса права) и на
+# чистой машине без кеша уезжает за десять минут. Висящий последний шаг снаружи
+# неотличим от поломки установщика: изолированный прогон ворот публикации
+# убивал его на 180 секундах, и человек не узнавал ни причины, ни того, что
+# первые шесть шагов давно прошли. Шаг сам себя ограничивает и сам объясняет.
+DOCTOR_PREDEL="${THEMIZ_DOCTOR_PREDEL:-60}"
+DOCTOR_RC=0
+python3 scripts/setup_doctor.py &
+doctor_pid=$!
+( sleep "$DOCTOR_PREDEL"; kill -TERM "$doctor_pid" 2>/dev/null || true ) &
+doctor_storozh=$!
+wait "$doctor_pid" 2>/dev/null || DOCTOR_RC=$?
+kill -TERM "$doctor_storozh" 2>/dev/null || true
+wait "$doctor_storozh" 2>/dev/null || true
+case "$DOCTOR_RC" in
+  124|137|143)
+    DOCTOR_RC=0
+    if [ "$THEMIZ_LANG" = "ru" ]; then
+      echo "      ⚠ проверка окружения не уложилась в ${DOCTOR_PREDEL} с и остановлена."
+      echo "        Установка при этом прошла: шаги 1-6 выше зеленые."
+      echo "        Прогнать проверку отдельно: python3 scripts/setup_doctor.py"
+      echo "        Дать ей больше времени: THEMIZ_DOCTOR_PREDEL=600 bash install.sh"
+    else
+      echo "      the environment check did not fit ${DOCTOR_PREDEL}s and was stopped."
+      echo "        The install itself went through: steps 1-6 above are green."
+      echo "        Run the check on its own: python3 scripts/setup_doctor.py"
+      echo "        Give it more time: THEMIZ_DOCTOR_PREDEL=600 bash install.sh"
+    fi
+    ;;
+esac
 
 echo ""
 echo "════════════════════════════════════════════"

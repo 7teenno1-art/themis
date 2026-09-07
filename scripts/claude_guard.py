@@ -26,6 +26,8 @@
 """
 import atexit
 import fnmatch
+import glob
+import hashlib
 import json
 import os
 import re
@@ -375,7 +377,11 @@ def _has_marker(path, pattern: str, anchored: bool = True) -> bool:
 # без маркера, а хук за это давал exit 2 — агент шел искать обход и находил его
 # (три дела попали в .agent/drafts мимо конвейера).
 # Запрет без легального пути производит обходы, а не дисциплину.
-PRACTICE_MARKER = r"## (СОВЕТ ЗАВЕРШ|FAST-СИНТЕЗ ФЕМИДЫ)"
+# Тот же список, поэлементно, — themiz_status.PRACTICE_MARKERS; расходиться
+# им нельзя (поэлементное совпадение сверяет tests/test_remont_T204.py).
+# PRACTICE_MARKER собирается из списка, а не дублируется второй копией рукой.
+PRACTICE_MARKERS = (r"## СОВЕТ ЗАВЕРШ", r"## FAST-СИНТЕЗ ФЕМИДЫ")
+PRACTICE_MARKER = r"## (" + "|".join(p[len("## "):] for p in PRACTICE_MARKERS) + ")"
 
 
 def _workflow_gate(p: str) -> None:
@@ -2148,8 +2154,130 @@ def _expand_exec_heredocs(raw: str) -> str:
 # хук Entire (pre-task трекинг). Хуки Claude Code исполняются независимо: наш exit 2
 # запрещает спавн, но НЕ отменяет процесс Entire (его pre-task отработает как обычно,
 # просто задача не выполнится). Отслеживание Entire мы не трогаем и не отключаем.
+# Материалы-кандидаты на скан (дублирует themiz_status.SCAN_EXT — тот же признак).
+SCAN_EXT = {".pdf", ".jpg", ".jpeg", ".png", ".tiff", ".tif", ".heic", ".bmp"}
+EXTRACT_CACHE = os.environ.get(
+    "THEMIZ_EXTRACT_CACHE", os.path.join(os.path.expanduser("~"), ".cache", "legal_extract"))
+
+# Порог доли непустых извлечённых страниц: НИЖЕ него карта считается «на пустой
+# фактуре», охотник за практикой не стартует даже с маркером карты. Значение и
+# обоснование — themiz_status.EXTRACTION_MIN_SHARE (тот же гейт, тот же порог):
+# 10% отделяет единичные пустые страницы-разделители (обычная неполнота
+# середины конвейера) от системного отказа движка распознавания на большинстве
+# материала (прецедент 05.09.2026 — 0 из 41 стр.).
+EXTRACTION_MIN_SHARE = 0.10
+
+
+def _file_sha16(path: str) -> str:
+    try:
+        with open(path, "rb") as fh:
+            return hashlib.sha256(fh.read()).hexdigest()[:16]
+    except OSError:
+        return ""
+
+
+def _extraction_page_stats(ocr_dir: str) -> tuple:
+    """(непустых, всего) по manifest.json каталога OCR; фолбэк — голые page_*.txt.
+    Логика единая с themiz_status._extraction_page_stats: разошедшиеся копии
+    одного гейта проект уже проходил (комментарий у _has_marker)."""
+    man = os.path.join(ocr_dir, "manifest.json")
+    if os.path.isfile(man):
+        try:
+            with open(man, encoding="utf-8") as f:
+                data = json.load(f)
+            statuses = data.get("pages") or {}
+            total = int(data.get("total_pages") or len(statuses))
+            if total:
+                non_empty = sum(1 for v in statuses.values() if v in ("text", "ocr"))
+                return non_empty, total
+        except (OSError, ValueError, TypeError):
+            pass
+    pages = sorted(glob.glob(os.path.join(ocr_dir, "page_*.txt")))
+    non_empty = 0
+    for p in pages:
+        try:
+            with open(p, encoding="utf-8", errors="ignore") as fh:
+                if len(fh.read().strip()) >= 10:
+                    non_empty += 1
+        except OSError:
+            continue
+    return non_empty, len(pages)
+
+
+def _temp_render_roots() -> list:
+    roots = []
+    for r in (os.environ.get("TMPDIR"), "/tmp", "/private/tmp"):
+        if r and os.path.isdir(r):
+            real = os.path.realpath(r)
+            if real not in roots:
+                roots.append(real)
+    return roots
+
+
+def _extraction_coverage(case: str) -> tuple:
+    """(непустых, всего) страниц/материалов среди сканов дела. Обоснование
+    порога и полная логика — themiz_status.extraction_coverage (единый гейт).
+    Рендер эфемерен (--render-dir запрещен внутрь cases/), поэтому скан без
+    единого следа извлечения учитывается как один неизвлеченный материал:
+    дает (0, 1), а не выпадает из доли. Только дело без файлов с расширением
+    из SCAN_EXT дает (0, 0): для текстовых материалов доля неприменима."""
+    intake = os.path.join(case, "00_intake")
+    if not os.path.isdir(intake):
+        return (0, 0)
+    scans = [p for p in glob.glob(os.path.join(intake, "**", "*"), recursive=True)
+             if os.path.isfile(p) and not os.path.basename(p).startswith((".", "~$"))
+             and os.path.splitext(p)[1].lower() in SCAN_EXT]
+    if not scans:
+        return (0, 0)
+
+    client, matter = os.path.basename(os.path.dirname(case)), os.path.basename(case)
+    by_name = {}
+    for troot in _temp_render_roots():
+        for pat in (os.path.join(troot, client, matter, "*"),
+                   os.path.join(troot, "*", client, matter, "*")):
+            for p in glob.glob(pat):
+                if os.path.isdir(p):
+                    by_name.setdefault(os.path.basename(p), p)
+
+    non_empty = total = 0
+    for f in scans:
+        ocr_dir = by_name.get(os.path.basename(f))
+        sha = ""
+        if ocr_dir is None:
+            sha = _file_sha16(f)
+            if sha:
+                for cand in (os.path.join(EXTRACT_CACHE, sha + "_ocr"),
+                            os.path.join(EXTRACT_CACHE, sha)):
+                    if os.path.isdir(cand):
+                        ocr_dir = cand
+                        break
+                if ocr_dir is None:
+                    hits = glob.glob(os.path.join(intake, "**", ".ocr_" + sha), recursive=True)
+                    ocr_dir = next((h for h in hits if os.path.isdir(h)), None)
+        if ocr_dir:
+            ne, tot = _extraction_page_stats(ocr_dir)
+            if tot:
+                non_empty += ne
+                total += tot
+                continue
+        if not sha:
+            sha = _file_sha16(f)
+        if sha:
+            md = os.path.join(EXTRACT_CACHE, sha + ".md")
+            if os.path.isfile(md):
+                try:
+                    with open(md, encoding="utf-8", errors="ignore") as fh:
+                        if len(fh.read().strip()) >= 10:
+                            non_empty += 1
+                except OSError:
+                    pass
+        total += 1
+    return non_empty, total
+
+
 HUNTER_AGENTS = {"practice-hunter-classic", "practice-hunter-skeptic",
                  "practice-hunter-tactical"}
+CASE_LOCK_AGENTS = {"doc-drafter", "doc-reviewer"}
 # Ключевые агенты дела: их прямой спавн из главного потока идет только через проводник.
 KEY_CASE_AGENTS = HUNTER_AGENTS | {
     "case-mapper", "case-reconciler", "doc-drafter", "doc-reviewer"}
@@ -2212,6 +2340,41 @@ def _swarm_live_slot(name: str, ti: dict, payload: dict) -> None:
         block("БЛОК ПОТОЛКА РОЯ: " + reason)
 
 
+def _case_lock_gate(case: str, payload: dict, acquire: bool) -> dict:
+    """Шаги 4-5 ведет одна живая сессия; ошибка проверки закрывает спавн."""
+    session = payload.get("session_id")
+    if not isinstance(session, str) or not session.strip():
+        block(
+            "БЛОК ЛОКА ДЕЛА: хук не получил session_id, поэтому владельца дела "
+            "нельзя установить. Повторить спавн из штатной сессии Claude Code."
+        )
+    session = session.strip()
+    # ponytail: settings запускает hook напрямую, поэтому PPID — процесс сессии;
+    # если появится shell-wrapper, передавать подтвержденный owner_pid в payload.
+    owner_pid = os.getppid()
+    try:
+        import case_paths
+        result = (case_paths.case_lock_acquire(case, session, pid=owner_pid)
+                  if acquire else case_paths.case_lock_status(case))
+    except Exception as exc:
+        block(
+            "БЛОК ЛОКА ДЕЛА: состояние .agent/context/.lock не проверено "
+            f"({type(exc).__name__}). Fail-open на шагах 4-5 запрещен."
+        )
+
+    if result.get("state") == "stale_removed" and result.get("reason"):
+        print("Фемида: " + str(result["reason"]), file=sys.stderr)
+    if not result.get("ok", False):
+        block("БЛОК ЛОКА ДЕЛА: " + str(result.get("reason") or "лок не проверен"))
+    if not acquire and result.get("locked") and result.get("session") != session:
+        owner = " ".join(str(result.get("session") or "(без имени)").split())
+        block(
+            f"БЛОК ЛОКА ДЕЛА: дело уже ведет сессия {owner} "
+            f"(pid {result.get('pid')}). Дождаться снятия живого лока."
+        )
+    return result
+
+
 def _agent_gate(ti: dict, payload: dict) -> None:
     """Жесткое исполнение порядка конвейера на спавне ключевого агента дела."""
     name = ""
@@ -2254,6 +2417,22 @@ def _agent_gate(ti: dict, payload: dict) -> None:
         _swarm_live_slot(name, ti, payload)     # слот живого агента до выхода
         return                              # не ключевой агент дела — не наш гейт
 
+    case = _agent_case(ti, base)
+    if not case:
+        if name in CASE_LOCK_AGENTS:
+            block(
+                "БЛОК ЛОКА ДЕЛА: для шага 4/5 дело не опознано. Указать в prompt "
+                "существующий путь cases/{клиент}/{дело}; без него межсессионный "
+                "лок проверить нельзя."
+            )
+        _swarm_live_slot(name, ti, payload)
+        return                              # дело не опознано → ведем себя как раньше
+
+    # Чужой живой лок называем раньше остальных отказов, в том числе запрета прямого
+    # doc-reviewer. Свободное дело пока НЕ занимаем: отклоненный prereq не оставляет лок.
+    if name in CASE_LOCK_AGENTS:
+        _case_lock_gate(case, payload, acquire=False)
+
     # doc-reviewer — только из doc-drafter (его Шаг 9), не из главного потока: за
     # прогон 01.09 запрет \xabвторой раз не звать\xbb нарушил САМ оркестратор дважды
     # (23,19 долл.). Спавн doc-drafter-ом этот хук не видит (субагентный контекст);
@@ -2265,11 +2444,6 @@ def _agent_gate(ti: dict, payload: dict) -> None:
             "запускает сам doc-drafter (его Шаг 9), владелец ревью — один. Второй "
             "прямой вызов за прогон 01.09.2026 стоил 23,19 долл."
         )
-
-    case = _agent_case(ti, base)
-    if not case:
-        _swarm_live_slot(name, ti, payload)
-        return                              # дело не опознано → ведем себя как раньше
 
     ctx = os.path.join(case, ".agent", "context")
     km = os.path.join(ctx, "knowledge-map.md")
@@ -2301,6 +2475,15 @@ def _agent_gate(ti: dict, payload: dict) -> None:
                 "нет). Сначала case-mapper → маркер \xab## КАРТА ГОТОВА ✓\xbb в "
                 "knowledge-map.md. Практику из ДРУГОГО дела берут без охотников вовсе."
             )
+        ex_ne, ex_tot = _extraction_coverage(case)
+        if ex_tot and (ex_ne / ex_tot) < EXTRACTION_MIN_SHARE:
+            block(
+                "БЛОК ПРОТОКОЛА: охотник за практикой — карта стоит на пустой "
+                f"фактуре (извлечено {ex_ne} из {ex_tot} стр./материалов, порог "
+                f"{EXTRACTION_MIN_SHARE:.0%}). Маркер \xab## КАРТА ГОТОВА ✓\xbb есть, "
+                "но извлечение пустое — переизвлечь материалы (markdown_extract.py/"
+                "OCR по 00_intake), затем case-mapper перечитает карту."
+            )
         code = st.get("preflight_code")
         if isinstance(code, int) and code != 0 and not st.get("preflight_override"):
             block(
@@ -2324,9 +2507,29 @@ def _agent_gate(ti: dict, payload: dict) -> None:
                     "Статус: python3 scripts/themiz_status.py " + case
                 )
 
+    case_lock_result = None
+    if name in CASE_LOCK_AGENTS:
+        case_lock_result = _case_lock_gate(case, payload, acquire=True)
+
     # Все гейты пройдены — спавн состоится, берем слот ПОСЛЕДНИМ: заблокированный
     # спавн не должен был занять место живого агента.
-    _swarm_live_slot(name, ti, payload)
+    try:
+        _swarm_live_slot(name, ti, payload)
+    except SystemExit:
+        if case_lock_result and case_lock_result.get("state") == "acquired":
+            try:
+                import case_paths
+                released = case_paths.case_lock_release(
+                    case, case_lock_result["session"], pid=case_lock_result["pid"],
+                    timestamp=case_lock_result["timestamp"])
+                if not released.get("ok", False):
+                    print("Фемида: новый лок после отказа слота не снят: "
+                          + str(released.get("reason") or released.get("state")),
+                          file=sys.stderr)
+            except Exception as exc:
+                print("Фемида: новый лок после отказа слота не снят "
+                      f"({type(exc).__name__})", file=sys.stderr)
+        raise
 
 
 def main() -> None:
@@ -3812,13 +4015,13 @@ def selftest() -> int:
     saved_live = os.environ.get("THEMIZ_SWARM_LIVE")
     os.environ["THEMIZ_SWARM_LIVE"] = live_tmp
 
-    def ag(name, prompt=None):
+    def ag(name, prompt=None, session="guard-selftest"):
         try:
             os.unlink(live_tmp)
         except OSError:
             pass
         return _main_harness_probe({
-            "tool_name": "Agent", "cwd": PROJECT_ROOT,
+            "tool_name": "Agent", "cwd": PROJECT_ROOT, "session_id": session,
             "tool_input": {"subagent_type": name,
                            "prompt": prompt if prompt is not None
                            else ("Работай по делу " + os.path.realpath(ag_case))},
@@ -3842,13 +4045,36 @@ def selftest() -> int:
         hunter_nomap = ag("practice-hunter-tactical")      # карты нет → блок
         _cp.knowledge_map(ag_case).write_text("## КАРТА ГОТОВА ✓\n", encoding="utf-8")
         hunter_ok = ag("practice-hunter-classic")          # карта есть, preflight не задан → пуск
+        saved_extraction = globals()["_extraction_coverage"]
+        real_case = os.path.join(ag_root, "klient", "real-extraction-2026")
+        real_intake = os.path.join(real_case, "00_intake")
+        os.makedirs(real_intake, exist_ok=True)
+        for i in range(9):
+            with open(os.path.join(real_intake, f"scan-{i}.jpg"), "w", encoding="utf-8") as f:
+                f.write(f"scan-{i}")
+        real_cache = os.path.join(tmp, "empty-extract-cache")
+        os.makedirs(real_cache, exist_ok=True)
+        saved_extract_cache = globals()["EXTRACT_CACHE"]
+        try:
+            globals()["EXTRACT_CACHE"] = real_cache
+            real_extraction = saved_extraction(real_case)
+            globals()["_extraction_coverage"] = lambda _c: (0, 41)
+            hunter_empty = ag("practice-hunter-tactical")  # карта на пустой фактуре → блок
+            globals()["_extraction_coverage"] = lambda _c: (35, 41)
+            hunter_extracted = ag("practice-hunter-tactical")  # извлечение в норме → пуск
+        finally:
+            globals()["EXTRACT_CACHE"] = saved_extract_cache
+            globals()["_extraction_coverage"] = saved_extraction
         _cp.run_write(ag_case, preflight_code=1)
         hunter_pf = ag("practice-hunter-classic")          # preflight упал → блок
         _cp.run_write(ag_case, preflight_override="по индексу")
         hunter_ovr = ag("practice-hunter-classic")         # решение владельца → пуск
         drafter_no = ag("doc-drafter")                     # практики нет → блок
+        drafter_no_lock = not os.path.exists(os.path.join(
+            ag_case, ".agent", "context", ".lock"))
         _cp.practice(ag_case).write_text("## FAST-СИНТЕЗ ФЕМИДЫ\n", encoding="utf-8")
         drafter_ok = ag("doc-drafter")                     # карта+практика → пуск
+        drafter_foreign = ag("doc-drafter", session="foreign-selftest")
         reviewer_main = ag("doc-reviewer")                 # из главного потока → блок
         os.environ["THEMIZ_DOC_REVIEWER_OK"] = "1"
         reviewer_ok = ag("doc-reviewer")                   # escape из doc-drafter → пуск
@@ -3884,10 +4110,16 @@ def selftest() -> int:
         ("agent: проводник есть — case-mapper проходит", guided_mapper, 0),
         ("agent: охотник без карты заблокирован", hunter_nomap, 2),
         ("agent: охотник с картой проходит", hunter_ok, 0),
+        ("agent: настоящий счет видит девять неизвлеченных сканов",
+         real_extraction, (0, 9)),
+        ("agent: охотник — карта на пустой фактуре заблокирован", hunter_empty, 2),
+        ("agent: охотник — извлечение в норме проходит", hunter_extracted, 0),
         ("agent: охотник при упавшем preflight заблокирован", hunter_pf, 2),
         ("agent: охотник с решением владельца проходит", hunter_ovr, 0),
         ("agent: doc-drafter без практики заблокирован", drafter_no, 2),
+        ("agent: отклоненный doc-drafter не занимает дело", drafter_no_lock, True),
         ("agent: doc-drafter с картой+практикой проходит", drafter_ok, 0),
+        ("agent: чужая сессия doc-drafter заблокирована локом", drafter_foreign, 2),
         ("agent: doc-reviewer из главного потока заблокирован", reviewer_main, 2),
         ("agent: doc-reviewer с escape-токеном проходит", reviewer_ok, 0),
         ("agent: спавн за потолком живых отбит счетом, не формулой", over_cap, 2),

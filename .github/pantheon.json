@@ -1,7 +1,8 @@
 {
   "schema_version": 3,
   "family_id": "zarubinvibe-pantheon",
-  "catalog_version": "2026-09-03",
+  "catalog_version": "2026-09-06",
+  "dress": "full",
   "project": {
     "slug": "themiz",
     "deity": "Themis",
@@ -249,6 +250,51 @@
           "assets/pantheon/workflow/05-council.png",
           "assets/pantheon/workflow/06-draft.png",
           "assets/pantheon/workflow/07-hearing.png"
+        ]
+      },
+      {
+        "path": "LICENSE.ru.md",
+        "frames": [
+          "docs/assets/pantheon/security.png"
+        ]
+      },
+      {
+        "path": "docs/ONBOARDING.md",
+        "frames": [
+          "assets/pantheon/workflow/01-intake.png"
+        ]
+      },
+      {
+        "path": "docs/ONBOARDING.ru.md",
+        "frames": [
+          "assets/pantheon/workflow/01-intake.png"
+        ]
+      },
+      {
+        "path": "docs/ONBOARDING.zh.md",
+        "frames": [
+          "assets/pantheon/workflow/01-intake.png"
+        ]
+      },
+      {
+        "path": "docs/ONBOARDING-CHAT.md",
+        "frames": [
+          "assets/pantheon/emblem.png",
+          "assets/pantheon/takt-en.png"
+        ]
+      },
+      {
+        "path": "docs/ONBOARDING-CHAT.ru.md",
+        "frames": [
+          "assets/pantheon/emblem.png",
+          "assets/pantheon/takt-ru.png"
+        ]
+      },
+      {
+        "path": "docs/ONBOARDING-CHAT.zh.md",
+        "frames": [
+          "assets/pantheon/emblem.png",
+          "assets/pantheon/takt-zh.png"
         ]
       }
     ]

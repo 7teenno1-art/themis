@@ -1,5 +1,7 @@
 # Onboarding
 
+<p align="center"><img src="assets/pantheon/workflow/01-intake.png" alt="Intake: case material arriving on the marble table, each sheet becoming a glass plate under Themis's hand" width="100%"></p>
+
 This walkthrough assumes you are a lawyer, not an engineer, and that you have never installed anything from a terminal. Every step says what to do and what you should see afterwards.
 
 The short path is the guided one: open the project in Claude Code and run `/themiz-setup`. Themiz introduces herself, asks about your practice one question at a time, explains why each question matters, and installs nothing without your yes. Below is the same road on foot.

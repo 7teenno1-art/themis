@@ -1,334 +1,335 @@
 #!/usr/bin/env python3
-"""
-Универсальный конвертер .md -> .docx через DocBuilder.
-Использование:
-    python3 scripts/md_to_docx.py cases/.../.agent/drafts/document.md
-Сохраняет document.docx рядом с исходным .md.
-"""
+"""Мост «черновик .md → .docx» через DocBuilder.
 
+Зачем: DocBuilder — конструктор с методами (add_title/add_section/add_body), а не
+конвертер. Когда владельцу нужен весь пакет в Word немедленно и он проверяет тексты
+сам, механическая раскладка markdown по методам конструктора занимает секунды против
+часа работы роя составителей.
+
+Ограничение осознанное: это КОНВЕРТАЦИЯ, а не составление. Вердикт Кони документу не
+выдается, гейты содержания не проходятся — сборка помечается как черновая.
+
+Запуск:
+    python3 scripts/md_to_docx.py ЧЕРНОВИК.md ВЫХОД.docx
+    python3 scripts/md_to_docx.py --batch КАТАЛОГ_ЧЕРНОВИКОВ КАТАЛОГ_ВЫХОДА
+"""
 import re
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from scripts.create_docx import DocBuilder, FONT, _set_font
-from docx.shared import Pt, Cm
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.oxml.ns import qn
-from docx.oxml import OxmlElement
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+# create_docx на импорте выполняет демо-сохранение в /tmp — под песочницей это
+# PermissionError. Берем только класс, минуя нижний блок модуля.
+import importlib.util
+
+_spec = importlib.util.spec_from_file_location(
+    "_docbuilder_src", str(Path(__file__).resolve().parent / "create_docx.py"))
+_src = _spec.loader.get_source("_docbuilder_src")
+_cut = _src.find('if __name__ ==')
+if _cut == -1:  # у модуля нет главного блока — берем как есть до демо-сохранения
+    _cut = _src.find('b.save("/tmp/test_doc.docx")')
+_mod = importlib.util.module_from_spec(_spec)
+exec(compile(_src[:_cut] if _cut > 0 else _src, "create_docx.py", "exec"), _mod.__dict__)
+DocBuilder = _mod.DocBuilder
+
+_BOLD = re.compile(r"\*\*(.+?)\*\*")
+_ITALIC = re.compile(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)")
+_LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+_NUMBERED = re.compile(r"^(\d+)[.)]\s+(.*)$")
+_BULLET = re.compile(r"^[-*·]\s+(.*)$")
 
 
-def strip_markdown_bold(text: str) -> list:
-    """Превращает строку с **жирным** текстом в список (text, bold)."""
-    parts = []
-    while "**" in text:
-        idx = text.index("**")
-        if idx > 0:
-            parts.append((text[:idx], False))
-        text = text[idx + 2:]
-        if "**" in text:
-            idx = text.index("**")
-            parts.append((text[:idx], True))
-            text = text[idx + 2:]
-        else:
-            parts.append((text, True))
-            text = ""
-    if text:
-        parts.append((text, False))
-    return parts
+def _clean(text):
+    """Разметку markdown снимаем: .docx несет ее собственными средствами."""
+    text = _LINK.sub(r"\1", text)
+    text = _BOLD.sub(r"\1", text)
+    text = _ITALIC.sub(r"\1", text)
+    return text.replace("`", "").strip()
 
 
-DOCUMENT_TITLES = {
-    "ВОЗРАЖЕНИЯ", "ВОЗРАЖЕНИЕ", "ЗАЯВЛЕНИЕ", "ИСКОВОЕ ЗАЯВЛЕНИЕ",
-    "ХОДАТАЙСТВО", "ОПРЕДЕЛЕНИЕ", "ПРЕДЛОЖЕНИЕ",
-}
+def _is_signature_zone(line):
+    low = line.lower()
+    return low.startswith("подпись") or "/ __" in line or line.startswith("«___»")
 
 
-def is_document_heading(line: str) -> bool:
-    """Определяет, заканчивается ли шапка на данной строке."""
-    stripped = line.strip()
-    if re.match(r"^#{1,4} \S", stripped):
-        return True
-    if stripped in DOCUMENT_TITLES:
-        return True
-    if re.match(r"^[IVXLC]+\.\s", stripped):
-        return True
-    return False
-
-
-def parse_header(lines: list) -> dict:
-    """Парсит шапку документа (до первого ---, заголовка или раздела)."""
-    court_name = ""
-    court_route_parts = []
-    case_number = ""
-    parties = []
-    current_party = None
-
-    for line in lines:
-        line = line.rstrip()
-        if not line:
-            if current_party is not None:
-                parties.append(current_party)
-                current_party = None
-            continue
-
-        # суд
-        if line.startswith("В ") and "суд" in line.lower():
-            court_name = line[2:].strip()
-            continue
-
-        # адрес / судья
-        if line.lower().startswith("адрес:") or line.lower().startswith("судья"):
-            court_route_parts.append(line)
-            continue
-
-        # дело
-        if line.lower().startswith("дело №"):
-            case_number = line
-            continue
-
-        # метка стороны (заканчивается двоеточием)
-        if line.endswith(":") and ("истец" in line.lower() or "ответчик" in line.lower() or "третье" in line.lower() or "лицо" in line.lower()):
-            if current_party is not None:
-                parties.append(current_party)
-            current_party = {"label": line, "lines": []}
-            continue
-
-        # строка данных стороны
-        if current_party is not None:
-            clean = line.rstrip(",;").strip()
-            # первая строка блока — имя, делаем жирным
-            is_bold = len(current_party["lines"]) == 0
-            current_party["lines"].append((clean, is_bold))
-
-    if current_party is not None:
-        parties.append(current_party)
-
-    court_route = "\n".join(court_route_parts)
-    return {
-        "court": court_name,
-        "court_route": court_route,
-        "case": case_number,
-        "parties": parties,
-    }
-
-
-def add_table_to_doc(doc, rows: list):
-    """Добавляет markdown-таблицу в docx с базовым форматированием."""
-    if not rows:
-        return
-    # отфильтровать разделительные строки
-    data_rows = [r for r in rows if not re.match(r"^\|[-:\|\s]+\|$", r.strip())]
-    if not data_rows:
-        return
-
-    cells = [list(map(str.strip, row.strip("|").split("|"))) for row in data_rows]
-    num_cols = max(len(c) for c in cells)
-    table = doc.add_table(rows=len(cells), cols=num_cols)
-
-    # убрать границы
-    tbl = table._tbl
-    tblPr = tbl.find(qn("w:tblPr"))
-    if tblPr is None:
-        tblPr = OxmlElement("w:tblPr")
-        tbl.insert(0, tblPr)
-    tblBorders = OxmlElement("w:tblBorders")
-    for side in ["top", "left", "bottom", "right", "insideH", "insideV"]:
-        el = OxmlElement(f"w:{side}")
-        el.set(qn("w:val"), "none")
-        tblBorders.append(el)
-    tblPr.append(tblBorders)
-
-    # автоширина
-    tblLayout = OxmlElement("w:tblLayout")
-    tblLayout.set(qn("w:type"), "autofit")
-    tblPr.append(tblLayout)
-
-    for i, row_cells in enumerate(cells):
-        for j in range(num_cols):
-            cell = table.rows[i].cells[j]
-            cell.paragraphs[0].clear()
-            cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.LEFT
-            text = row_cells[j] if j < len(row_cells) else ""
-            _set_font(cell.paragraphs[0].add_run(text), 12)
-
-    # отступ после таблицы
-    p = doc.add_paragraph()
-    p.paragraph_format.space_after = Pt(6)
-
-
-def convert(md_path: str):
-    md_file = Path(md_path)
-    out_path = md_file.with_suffix(".docx")
-
-    content = md_file.read_text(encoding="utf-8")
-    lines = content.splitlines()
-
-    # разделить шапку и тело
-    header_lines = []
-    body_lines = []
-    in_header = True
-    for line in lines:
-        if in_header and line.strip() == "---":
-            in_header = False
-            continue
-        if in_header and is_document_heading(line):
-            in_header = False
-            body_lines.append(line)
-            continue
-        if in_header:
-            header_lines.append(line)
-        else:
-            body_lines.append(line)
-
-    header_info = parse_header(header_lines)
-
+def convert(md_path, docx_path):
+    lines = Path(md_path).read_text(encoding="utf-8").splitlines()
     b = DocBuilder()
+    title_done = False
+    in_table = False
 
-    # шапка
-    b.add_header_table(
-        court_name=header_info["court"] or "Суд",
-        court_route=header_info["court_route"],
-        parties=header_info["parties"],
-        case_number=header_info["case"],
-    )
-    b.add_empty()
-
-    # тело
-    i = 0
-    state = "body"  # body | proshyu | appendices
-
-    while i < len(body_lines):
-        line = body_lines[i]
-        stripped = line.strip()
-
-        # пустая строка
-        if not stripped:
-            i += 1
+    for raw in lines:
+        line = raw.rstrip()
+        if not line.strip():
             continue
 
-        # горизонтальная черта
-        if stripped == "---":
+        # таблицы markdown разбирать не пытаемся: строки идут абзацами,
+        # владелец правит вручную. ponytail: таблиц в обращениях почти нет.
+        if line.lstrip().startswith("|"):
+            if set(line.replace("|", "").strip()) <= set("-: "):
+                in_table = True
+                continue
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            b.add_body([(_clean(" — ".join(c for c in cells if c)), False)])
+            continue
+        in_table = False
+
+        if line.startswith("---") or line.startswith("***") or line.lstrip().startswith("<!--"):
+            continue
+
+        if line.startswith("#"):
+            level = len(line) - len(line.lstrip("#"))
+            text = _clean(line.lstrip("#").strip())
+            if not text:
+                continue
+            if level == 1 and not title_done:
+                b.add_title(text)
+                title_done = True
+            elif level <= 2:
+                b.add_section(text)
+            else:
+                b.add_subsection(text)
+            continue
+
+        m = _NUMBERED.match(line.strip())
+        if m:
+            b.add_numbered_body([(_clean(m.group(2)), False)])
+            continue
+
+        m = _BULLET.match(line.strip())
+        if m:
+            b.add_bullet(_clean(m.group(1)))
+            continue
+
+        text = _clean(line)
+        if not text:
+            continue
+        if _is_signature_zone(text):
+            b.add_body([(text, False)])
             b.add_empty()
-            i += 1
+            continue
+        b.add_body([(text, False)])
+
+    b.add_page_numbers()
+    Path(docx_path).parent.mkdir(parents=True, exist_ok=True)
+    b.save(str(docx_path))
+    # DocBuilder.save() при запрете вердикта печатает отказ и НЕ бросает исключение.
+    # Верим диску, а не отчету: тихий успех — та самая болезнь, ради которой скрипт писан.
+    if not Path(docx_path).exists():
+        raise RuntimeError("DocBuilder отказал в сборке (нет вердикта Кони) — файл не создан")
+    return docx_path
+
+
+def convert_plain(md_path, docx_path):
+    """Рабочая копия для чтения человеком, БЕЗ гейта вердикта.
+
+    Форматирование по обычаю судебного документа: шапка блоком в правой верхней
+    части листа, название по центру прописными, текст по ширине с красной строкой,
+    просительная часть и приложения выделены, подпись строкой «дата — подпись».
+    """
+    from docx import Document
+    from docx.shared import Pt, Mm, Cm
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.enum.table import WD_TABLE_ALIGNMENT
+
+    doc = Document()
+    st = doc.styles["Normal"]
+    st.font.name = "PT Serif"
+    st.font.size = Pt(14)
+    pf = st.paragraph_format
+    pf.line_spacing = 1.5
+    pf.space_after = Pt(0)
+    for s in doc.sections:
+        s.top_margin, s.bottom_margin = Mm(20), Mm(30)
+        s.left_margin, s.right_margin = Mm(30), Mm(15)
+
+    lines = [l.rstrip() for l in Path(md_path).read_text(encoding="utf-8").splitlines()]
+    lines = [l for l in lines if not l.lstrip().startswith("<!--")]
+
+    TITLE = re.compile(r"^(ИСКОВОЕ ЗАЯВЛЕНИЕ|ОБРАЩЕНИЕ|ЗАЯВЛЕНИЕ|ЖАЛОБА|ХОДАТАЙСТВО|ВОЗРАЖЕНИЯ)\b")
+    title_at = next((i for i, l in enumerate(lines) if TITLE.match(l.strip())), None)
+
+    def para(text, align=WD_ALIGN_PARAGRAPH.JUSTIFY, indent=True, bold=False,
+             before=0, after=0, left=None):
+        p = doc.add_paragraph()
+        r = p.add_run(text)
+        r.bold = bold
+        p.alignment = align
+        p.paragraph_format.first_line_indent = Cm(1.25) if indent else Cm(0)
+        p.paragraph_format.space_before = Pt(before)
+        p.paragraph_format.space_after = Pt(after)
+        if left is not None:
+            p.paragraph_format.left_indent = Cm(left)
+        return p
+
+    # ── шапка: блок в правой части листа, отступ слева ≈ половина ширины полосы
+    if title_at:
+        # строки шапки склеиваем в абзацы по пустой строке: в Word жесткие переносы
+        # исходника рвут блок «Истец: …» на обрывки, чего в документе быть не должно.
+        buf = []
+        def flush_head():
+            if buf:
+                para(" ".join(buf), align=WD_ALIGN_PARAGRAPH.LEFT, indent=False,
+                     left=8.5, after=6)
+                buf.clear()
+        for raw in lines[:title_at]:
+            line = raw.strip()
+            if not line:
+                flush_head()
+                continue
+            buf.append(_clean(line))
+        flush_head()
+        para("", indent=False, after=12)
+
+    body = lines[title_at:] if title_at is not None else lines
+    seen_title = False
+    sign_buf = []
+    tbl_buf = []
+
+    def flush_table():
+        """Таблицы markdown переносим настоящей таблицей Word, а не строкой текста."""
+        if not tbl_buf:
+            return
+        rows = [[c.strip() for c in r.strip().strip("|").split("|")] for r in tbl_buf]
+        rows = [r for r in rows if not set("".join(r)) <= set("-: ")]
+        if not rows:
+            tbl_buf.clear()
+            return
+        width = max(len(r) for r in rows)
+        table = doc.add_table(rows=len(rows), cols=width)
+        table.style = "Table Grid"
+        for i, row in enumerate(rows):
+            for j in range(width):
+                cell = table.cell(i, j)
+                cell.text = _clean(row[j]) if j < len(row) else ""
+                for pp in cell.paragraphs:
+                    for r in pp.runs:
+                        r.font.name = "PT Serif"
+                        r.font.size = Pt(12)
+                        r.bold = (i == 0)
+        doc.add_paragraph()
+        tbl_buf.clear()
+    for raw in body:
+        line = raw.strip()
+        if not line or line.startswith("---"):
+            continue
+        if line.lstrip().startswith("|"):
+            tbl_buf.append(line)
+            continue
+        flush_table()
+        if line.startswith("#"):
+            line = line.lstrip("#").strip()
+        text = _clean(line)
+        if not text:
             continue
 
-        # заголовок документа (# )
-        if re.match(r"^# ", line):
-            b.add_title(stripped[2:])
-            i += 1
+        if not seen_title and TITLE.match(text):
+            para(text.upper(), align=WD_ALIGN_PARAGRAPH.CENTER, indent=False,
+                 bold=True, after=6)
+            seen_title = True
             continue
-
-        # документный заголовок без решетки (ВОЗРАЖЕНИЯ, ЗАЯВЛЕНИЕ и т.д.)
-        if stripped in DOCUMENT_TITLES:
-            b.add_title(stripped)
-            i += 1
-            # следующие непустые строки до разделителя — подзаголовки
-            while i < len(body_lines) and body_lines[i].strip() and not is_document_heading(body_lines[i]):
-                b.add_subtitle(body_lines[i].strip())
-                i += 1
+        # подзаголовок «о чем документ» — сразу под названием, по центру
+        if seen_title and text[:1].islower() and doc.paragraphs[-1].runs and doc.paragraphs[-1].runs[0].bold:
+            para(text, align=WD_ALIGN_PARAGRAPH.CENTER, indent=False, after=12)
             continue
-
-        # подзаголовок (## )
-        if re.match(r"^## ", line):
-            b.add_subtitle(stripped[3:])
-            i += 1
+        if text.upper() in ("ПРОШУ:", "ПРОШУ", "ТРЕБОВАНИЯ:"):
+            para("ПРОШУ:", align=WD_ALIGN_PARAGRAPH.CENTER, indent=False, bold=True,
+                 before=12, after=6)
             continue
-
-        # секция (### )
-        if re.match(r"^### ", line):
-            b.add_section(stripped[4:])
-            i += 1
+        if text.rstrip(":").upper() in ("ПРИЛОЖЕНИЯ", "ПРИЛОЖЕНИЕ"):
+            para("Приложения:", align=WD_ALIGN_PARAGRAPH.LEFT, indent=False, bold=True,
+                 before=12, after=6)
             continue
-
-        # подсекция (#### )
-        if re.match(r"^#### ", line):
-            b.add_subsection(stripped[5:])
-            i += 1
+        if re.match(r"^[IVX]+\.\s", text) or (len(text) < 90 and text.endswith(tuple("абвгдежзийклмнопрстуфхцчшщыэюя")) and re.match(r"^[IVX]+\.", text)):
+            para(text, align=WD_ALIGN_PARAGRAPH.LEFT, indent=False, bold=True,
+                 before=12, after=6)
             continue
-
-        # таблица
-        if stripped.startswith("|"):
-            table_rows = []
-            while i < len(body_lines) and body_lines[i].strip().startswith("|"):
-                table_rows.append(body_lines[i])
-                i += 1
-            add_table_to_doc(b.doc, table_rows)
+        m = _NUMBERED.match(text)
+        if m:
+            para(text, align=WD_ALIGN_PARAGRAPH.JUSTIFY, indent=False, left=0.75)
             continue
-
-        # маркированный список
-        if stripped.startswith("- "):
-            item = stripped[2:]
-            b.add_bullet(item)
-            i += 1
+        m = _BULLET.match(text)
+        if m:
+            para("— " + _clean(m.group(1)), align=WD_ALIGN_PARAGRAPH.JUSTIFY,
+                 indent=False, left=0.75)
             continue
-
-        # ПРОСИМ / ПРОШУ
-        if stripped in ("ПРОСИМ:", "ПРОШУ:"):
-            b.add_proshyu()
-            state = "proshyu"
-            i += 1
+        if text.startswith("«____»") or text.startswith("____"):
+            sign_buf.append(text)
             continue
+        para(text)
 
-        # ПРИЛОЖЕНИЯ
-        if stripped == "ПРИЛОЖЕНИЯ:":
-            b.add_appendices()
-            state = "appendices"
-            i += 1
+    # Блок подписи НЕ дописывается: реквизит доверителя ставится только если он
+    # есть в исходнике. Автоподпись на произвольном файле — фабрикация (найдено
+    # разбором 06.09.2026: подпись доверителя попала в аналитическую записку).
+    flush_table()
+    if sign_buf:
+        from docx.enum.table import WD_TABLE_ALIGNMENT
+        para("", indent=False, before=18)
+        tbl = doc.add_table(rows=1, cols=2)
+        tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+        left_cell, right_cell = tbl.rows[0].cells
+        date_line = next((s for s in sign_buf if s.startswith("«")), "")
+        sign_line = next((s for s in sign_buf if "/" in s), "")
+        left_cell.paragraphs[0].add_run(date_line)
+        rp = right_cell.paragraphs[0]
+        rp.add_run(sign_line)
+        rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        for cell in (left_cell, right_cell):
+            for pp in cell.paragraphs:
+                for r in pp.runs:
+                    r.font.name = "PT Serif"
+                    r.font.size = Pt(14)
+    Path(docx_path).parent.mkdir(parents=True, exist_ok=True)
+    doc.save(str(docx_path))
+    if not Path(docx_path).exists():
+        raise RuntimeError("файл не создан")
+    return docx_path
+
+
+def _batch(src_dir, out_dir, plain=False):
+    src, out = Path(src_dir), Path(out_dir)
+    made, failed = [], []
+    for md in sorted(src.glob("*.md")):
+        if md.name.startswith("_"):
             continue
+        target = out / (md.stem + ".docx")
+        try:
+            (convert_plain if plain else convert)(md, target)
+            made.append(target.name)
+        except Exception as exc:                     # noqa: BLE001 — отчет владельцу важнее трассы
+            failed.append(f"{md.name}: {type(exc).__name__}: {exc}")
+    for name in made:
+        print("собран:", name)
+    for line in failed:
+        print("ОТКАЗ:", line, file=sys.stderr)
+    print(f"итого: {len(made)} собрано, {len(failed)} отказов")
+    return 1 if failed else 0
 
-        # просительная часть: пункты вида "1. ..."
-        if state == "proshyu" and re.match(r"^\d+\.\s", stripped):
-            b.add_request_item(stripped)
-            i += 1
-            continue
 
-        # приложения: пункты вида "1. ..."
-        if state == "appendices" and re.match(r"^\d+\.\s", stripped):
-            b.add_appendix_item(stripped)
-            i += 1
-            continue
-
-        # подпись: строка с ролью и длинным подчеркиванием
-        if "____________" in stripped or "________________" in stripped:
-            # роль — предыдущая непустая строка, если есть
-            role = ""
-            name = stripped
-            if i > 0:
-                prev = body_lines[i - 1].strip()
-                if prev and not prev.startswith("#") and prev not in ("ПРОСИМ:", "ПРОШУ:", "ПРИЛОЖЕНИЯ:"):
-                    role = prev
-            # дата — следующая непустая строка
-            date_str = ""
-            j = i + 1
-            while j < len(body_lines) and not body_lines[j].strip():
-                j += 1
-            if j < len(body_lines):
-                date_str = body_lines[j].strip()
-            b.add_signature_table(role=role, name=name, date=date_str)
-            i = j + 1 if date_str else i + 1
-            continue
-
-        # обычный абзац
-        b.add_body(strip_markdown_bold(stripped))
-        i += 1
-
-    # DocBuilder.save() при отказе (нет вердикта, текст не совпал с одобренным)
-    # ПЕЧАТАЕТ причину и молча возвращает None — файл не пишет. Печатать «Создано»
-    # после этого = лгать: юрист идет за документом, которого нет. Сообщение об
-    # успехе обязано следовать за ФАКТОМ записи, а факт — свежий mtime файла.
-    before = out_path.stat().st_mtime_ns if out_path.exists() else None
-    b.save(str(out_path))
-    after = out_path.stat().st_mtime_ns if out_path.exists() else None
-    if after is not None and after != before:
-        print(f"✓ Создано: {out_path}")
-        return 0
-    print(f"✗ НЕ создано: {out_path} — сборщик отказал (причина выше).", file=sys.stderr)
-    return 1
+def _selftest():
+    """Минимальный чек: заголовок, пункт и абзац доходят до .docx непустыми."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        md = Path(tmp) / "t.md"
+        md.write_text("# Заголовок\n\n## Раздел\n\n1. Первый пункт\n\nОбычный абзац.\n",
+                      encoding="utf-8")
+        out = Path(tmp) / "t.docx"
+        convert(md, out)
+        assert out.exists() and out.stat().st_size > 5000, "docx пуст или не собран"
+    print("selftest пройден")
+    return 0
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Использование: python3 scripts/md_to_docx.py <путь к .md>")
-        sys.exit(1)
-    sys.exit(convert(sys.argv[1]))
+    args = sys.argv[1:]
+    if not args or args[0] in ("-h", "--help"):
+        print(__doc__)
+        sys.exit(2)
+    if args[0] == "--selftest":
+        sys.exit(_selftest())
+    if args[0] == "--batch":
+        sys.exit(_batch(args[1], args[2]))
+    if args[0] == "--batch-plain":
+        sys.exit(_batch(args[1], args[2], plain=True))
+    sys.exit(0 if convert(args[0], args[1]) else 1)

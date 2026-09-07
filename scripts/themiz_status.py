@@ -21,6 +21,7 @@
 import argparse
 import datetime
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -33,6 +34,10 @@ import sreda  # noqa: E402,F401  переходный период имен пе
 EXTRACT_CACHE = Path(os.environ.get(
     "THEMIZ_EXTRACT_CACHE", Path.home() / ".cache" / "legal_extract"))
 SCAN_EXT = {".pdf", ".jpg", ".jpeg", ".png", ".tiff", ".tif", ".heic", ".bmp"}
+# Маркеры закрытия шага 2 «Практика»: FULL — совет, FAST — синтез Фемиды.
+# Тот же список, поэлементно, — claude_guard.PRACTICE_MARKERS; расходиться им
+# нельзя (поэлементное совпадение сверяет tests/test_remont_T204.py).
+PRACTICE_MARKERS = (r"## СОВЕТ ЗАВЕРШ", r"## FAST-СИНТЕЗ ФЕМИДЫ")
 TEXT_EXT = {".docx", ".xlsx", ".pptx", ".rtf", ".txt", ".md", ".html", ".csv"}
 # Флаг предписан документами параметризованным — «[ОБНОВИТЬ КЛИЕНТА: поле: значение]»,
 # и параметр это и есть его полезная нагрузка. Перечень подстрок с закрывающей
@@ -158,6 +163,111 @@ def extracted(files: list[Path]) -> int:
         if (EXTRACT_CACHE / f"{sha}.md").exists() or (EXTRACT_CACHE / sha).is_dir():
             n += 1
     return n
+
+
+# Порог доли непустых извлечённых страниц: НИЖЕ него карта считается «на пустой
+# фактуре», Шаг 1 не засчитывается даже с маркером «## КАРТА ГОТОВА ✓». 10% —
+# граница между единичными пустыми страницами-разделителями (обычная неполнота
+# середины конвейера, не повод блокировать) и системным отказом движка
+# распознавания на большинстве материала (прецедент 05.09.2026 — 0 из 41 стр.).
+EXTRACTION_MIN_SHARE = 0.10
+
+
+def _extraction_page_stats(ocr_dir: Path) -> tuple[int, int]:
+    """(непустых, всего) по manifest.json каталога OCR (пишет markdown_extract.
+    write_manifest: total_pages + статус каждой страницы text/ocr/ocr_empty/
+    missing/beyond_maxp). Манифеста нет — фолбэк по голым page_*.txt тем же
+    порогом непустоты (10 символов), что и сам роутер."""
+    man = ocr_dir / "manifest.json"
+    if man.is_file():
+        try:
+            data = json.loads(read(man))
+            statuses = data.get("pages") or {}
+            total = int(data.get("total_pages") or len(statuses))
+            if total:
+                non_empty = sum(1 for v in statuses.values() if v in ("text", "ocr"))
+                return non_empty, total
+        except (ValueError, TypeError):
+            pass
+    pages = sorted(ocr_dir.glob("page_*.txt"))
+    non_empty = sum(1 for p in pages if len(read(p).strip()) >= 10)
+    return non_empty, len(pages)
+
+
+def _temp_render_roots() -> list[Path]:
+    """Корни, где может лежать эфемерный рендер скана: claude_guard запрещает
+    --render-dir внутрь cases/ (защита первички), легальное место —
+    {temp}/{дело}/{имя} — может быть вычищено между сессиями."""
+    roots: list[Path] = []
+    for r in (os.environ.get("TMPDIR"), "/tmp", "/private/tmp"):
+        if r and os.path.isdir(r):
+            p = Path(r).resolve()
+            if p not in roots:
+                roots.append(p)
+    return roots
+
+
+def extraction_coverage(case: Path) -> tuple[int, int]:
+    """(непустых, всего) страниц/материалов среди сканов дела — по ЛЮБОЙ
+    обнаружимой на диске OCR-выдаче.
+
+    Рендер по протоколу эфемерен (claude_guard запрещает --render-dir внутрь
+    cases/, легальное место — /tmp/{дело}/{имя}, может быть вычищено между
+    сессиями), поэтому свидетельство ищем лучшим усилием в нескольких местах
+    (temp-каталоги сессии, кеш роутера ~/.cache/legal_extract, легаси-сайдкары
+    под 00_intake). Скан без единого следа извлечения учитывается как один
+    неизвлеченный материал: дает (0, 1), а не выпадает из доли. Только
+    дело без файлов с расширением из SCAN_EXT дает (0, 0): для текстовых
+    материалов эта доля неприменима.
+    """
+    intake = case / "00_intake"
+    if not intake.is_dir():
+        return (0, 0)
+    scans = [f for f in intake.rglob("*") if f.is_file()
+             and not f.name.startswith((".", "~$")) and f.suffix.lower() in SCAN_EXT]
+    if not scans:
+        return (0, 0)
+
+    client, matter = case.parent.name, case.name
+    by_name: dict[str, Path] = {}
+    for root in _temp_render_roots():
+        for pat in (f"{client}/{matter}/*", f"*/{client}/{matter}/*"):
+            for p in root.glob(pat):
+                if p.is_dir():
+                    by_name.setdefault(p.name, p)
+
+    non_empty = total = 0
+    for f in scans:
+        ocr_dir = by_name.get(f.name)
+        sha = ""
+        if ocr_dir is None:
+            try:
+                sha = hashlib.sha256(f.read_bytes()).hexdigest()[:16]
+            except OSError:
+                sha = ""
+            if sha:
+                for cand in (EXTRACT_CACHE / f"{sha}_ocr", EXTRACT_CACHE / sha,
+                            *intake.rglob(f".ocr_{sha}")):
+                    if cand.is_dir():
+                        ocr_dir = cand
+                        break
+        if ocr_dir is not None:
+            ne, tot = _extraction_page_stats(ocr_dir)
+            if tot:
+                non_empty += ne
+                total += tot
+                continue
+        if not sha:
+            try:
+                sha = hashlib.sha256(f.read_bytes()).hexdigest()[:16]
+            except OSError:
+                sha = ""
+        if sha:
+            md = EXTRACT_CACHE / f"{sha}.md"
+            if md.is_file() and len(read(md).strip()) >= 10:
+                non_empty += 1
+        total += 1
+    return non_empty, total
 
 
 def _nuzhno_kodeksov() -> int:
@@ -449,13 +559,19 @@ def main() -> int:
     km, pr, pos = ctx / "knowledge-map.md", ctx / "practice.md", ctx / "positions.md"
     case_md = case / "_case.md"
 
-    s1 = has_marker(km, r"## КАРТА ГОТОВА ✓")
+    s1_marker = has_marker(km, r"## КАРТА ГОТОВА ✓")
+    extr_ne, extr_tot = extraction_coverage(case)
+    # Маркер сам по себе не значит готовность: карта, стоящая на извлечении
+    # ниже порога, недействительна, даже если заголовок на месте (прецедент
+    # 05.09.2026 — маркер стоял при 0 из 41 страницы).
+    s1_empty = bool(extr_tot) and (extr_ne / extr_tot) < EXTRACTION_MIN_SHARE
+    s1 = s1_marker and not s1_empty
     # Практика закрывается двумя путями разной силы: FULL — «## СОВЕТ ЗАВЕРШЕН»,
     # FAST — «## FAST-СИНТЕЗ ФЕМИДЫ». Раньше FAST маркера не имел, поэтому FAST и
     # FULL на диске были неотличимы, а агент шел в обход хука. Тот же список — в
     # claude_guard.PRACTICE_MARKER; расходиться им нельзя.
-    s2_full = has_marker(pr, r"## СОВЕТ ЗАВЕРШ")
-    s2_fast = has_marker(pr, r"## FAST-СИНТЕЗ ФЕМИДЫ")
+    s2_full = has_marker(pr, PRACTICE_MARKERS[0])
+    s2_fast = has_marker(pr, PRACTICE_MARKERS[1])
     s2 = s2_full or s2_fast
     # Порог — от даты попадания практики В НАШУ БАЗУ (mtime practice.md), а не
     # от даты вынесения актов. Решение владельца 02.08.2026: судебная практика
@@ -499,7 +615,15 @@ def main() -> int:
         return "✓" if ok else "✗"
 
     print(f"# Статус протокола — {case.name} (уровень: {level}; стадия: {stage})")
-    print(f"Шаг 1 Карта:     {mark(s1)}  knowledge-map.md {'с маркером' if s1 else '— нет маркера КАРТА ГОТОВА'}")
+    if s1:
+        s1_detail = "с маркером"
+    elif s1_empty:
+        s1_detail = (f"маркер есть, но карта стоит на пустой фактуре: извлечено "
+                     f"{extr_ne} из {extr_tot} стр./материалов (порог "
+                     f"{EXTRACTION_MIN_SHARE:.0%}) — маркер недействителен")
+    else:
+        s1_detail = "— нет маркера КАРТА ГОТОВА"
+    print(f"Шаг 1 Карта:     {mark(s1)}  knowledge-map.md {s1_detail}")
     fresh_note = "" if not s2 else (f" (свежая, ≤{PRACTICE_TTL_DAYS} дн.)" if pr_fresh else f" (в базе {age_days(pr)} дн., порог {PRACTICE_TTL_DAYS} — проверить актуальность)")
     track = " [FULL, совет]" if s2_full else (" [FAST, синтез Фемиды]" if s2_fast else "")
     print(f"Шаг 2 Практика:  {mark(s2)}  practice.md "
@@ -550,7 +674,10 @@ def main() -> int:
               "Положить его туда и только потом докладывать о готовности.")
 
     if not s1:
-        nxt = "Шаг 1 — case-mapper (карта дела)"
+        nxt = (f"Шаг 1 — переизвлечь материалы (извлечено {extr_ne} из {extr_tot}, "
+               "карта стоит на пустой фактуре): markdown_extract.py/OCR по "
+               "00_intake, затем case-mapper перечитает карту"
+               if s1_empty else "Шаг 1 — case-mapper (карта дела)")
     elif not s2:
         nxt = "Шаг 2 — охота за практикой (FAST: 1 охотник; FULL: 3 + /askacouncil)"
     elif not pr_fresh:
@@ -633,6 +760,7 @@ def selftest() -> int:
     # Один из трех материалов уже в кеше роутера.
     sha = hashlib.sha256((case / "00_intake" / "a.pdf").read_bytes()).hexdigest()
     (cache / f"{sha}.md").write_text("уже извлечено", encoding="utf-8")
+    (cache / f"{sha[:16]}.md").write_text("уже извлечено", encoding="utf-8")
 
     # Три варианта записи маркера позиции — ровно те, что встречаются на диске.
     neg = case / ".agent/context" / "pos_neg.md"
@@ -748,6 +876,19 @@ def selftest() -> int:
         globals()["rashod_stroka"] = lambda *_: ("расход: тест", False, False)
         globals()["_korpus_counts"] = lambda *_: (NUZHNO_KODEKSOV, 1)
         card_prose_out = run_status()
+
+        # Дырка 1 (05.09.2026): маркер карты не должен считаться действительным,
+        # пока извлечение пустое (case-mapper поставил «КАРТА ГОТОВА ✓» при 0 из
+        # 41 страницы — прецедент 05.09.2026, дело обезличено).
+        old_extraction = extraction_coverage
+        try:
+            globals()["extraction_coverage"] = lambda _c: (0, 41)
+            extraction_empty_out = run_status()
+            globals()["extraction_coverage"] = lambda _c: (35, 41)
+            extraction_normal_out = run_status()
+        finally:
+            globals()["extraction_coverage"] = old_extraction
+
         l2_card = read(case / "_case.md")
         (case / "_case.md").write_text(
             l2_card.replace("**Уровень:** L2", "**Уровень:** L1"), encoding="utf-8")
@@ -801,6 +942,39 @@ def selftest() -> int:
         checks.append(("явный трек сильнее объема", declared_track(case) == "FAST"))
     finally:
         tl.latest_session, tl.collect, tl.tokens = old_latest, old_collect, old_tokens
+
+    checks += [
+        ("маркер карты при нулевом извлечении — шаг 1 не засчитан",
+         "Шаг 1 Карта:     ✗" in extraction_empty_out
+         and "пустой фактуре" in extraction_empty_out),
+        ("СЛЕДУЮЩИЙ ШАГ зовет переизвлечение, не case-mapper вслепую",
+         "СЛЕДУЮЩИЙ ШАГ: Шаг 1 — переизвлечь материалы" in extraction_empty_out),
+        ("маркер карты при нормальном извлечении — шаг 1 засчитан",
+         "Шаг 1 Карта:     ✓" in extraction_normal_out),
+    ]
+
+    # Папка из одних текстовых материалов: OCR не нужен вовсе, проверка
+    # извлечения не применяется — старое поведение (решает только маркер).
+    text_case = tmp / "cases" / "klient-text" / "delo-text-2026"
+    (text_case / "00_intake").mkdir(parents=True)
+    (text_case / "00_intake" / "dogovor.docx").write_bytes(b"docx body")
+    (text_case / "00_intake" / "note.txt").write_bytes(b"text body")
+    checks.append(("папка из одних текстовых материалов — доля неприменима",
+                   extraction_coverage(text_case) == (0, 0)))
+
+    # Прямая проверка счета: скан без единого следа входит в знаменатель
+    # как неизвлеченный, текстовый маршрут (.md в кеше роутера)
+    # по-прежнему засчитывается извлеченным целиком.
+    direct_case = tmp / "cases" / "klient-direct" / "delo-direct-2026"
+    (direct_case / "00_intake").mkdir(parents=True)
+    (direct_case / "00_intake" / "no_evidence.pdf").write_bytes(b"pdf without any trace")
+    (direct_case / "00_intake" / "text_route.pdf").write_bytes(b"pdf with real text layer")
+    sha_txt = hashlib.sha256(
+        (direct_case / "00_intake" / "text_route.pdf").read_bytes()).hexdigest()[:16]
+    (EXTRACT_CACHE / f"{sha_txt}.md").write_text(
+        "довольно длинный извлеченный текст документа", encoding="utf-8")
+    checks.append(("скан без следов учтен, текстовый маршрут засчитан",
+                   extraction_coverage(direct_case) == (1, 2)))
 
     for name, ok in checks:
         print(f"  {'✓' if ok else '✗'} {name}")

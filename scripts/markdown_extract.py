@@ -79,6 +79,26 @@ OCR_ENGINE_MISSING = (
     "   Собери: swiftc -O bin/vision-ocr.swift -o bin/vision-ocr && chmod +x bin/vision-ocr\n"
     "   OCR НЕ ВЫПОЛНЕН — page_NNN.txt пустые, это НЕ пустой скан. СТОП, не уходить на облачный vision молча.")
 
+
+class OCREngineDown(Exception):
+    """Движок распознавания отказал — это НЕ пустая страница.
+
+    Авария 05.09.2026: Vision вернул пустой результат с кодом 0 (в песочнице
+    закрыты Neural Engine и GPU), роутер записал 41 пустой page_NNN.txt, и
+    вышестоящий шаг принял это за выполненную работу. Отказ движка обязан
+    подниматься исключением и валить прогон ненулевым кодом, иначе пустота
+    неотличима от результата.
+    """
+
+
+OCR_ENGINE_DOWN = (
+    "\n⛔ OCR НЕ ВЫПОЛНЕН — ОТКАЗАЛ ДВИЖОК, А НЕ ПУСТАЯ СТРАНИЦА.\n"
+    "   {reason}\n"
+    "   Сайдкары page_NNN.txt НЕ записаны: пустой сайдкар вышестоящий шаг\n"
+    "   принимает за готовую работу. Материал считать НЕ извлеченным.\n"
+    "   Проверка движка одной командой: bin/vision-doc --selftest\n"
+    "   Молча уходить на облачный vision запрещено (CLAUDE.md, LOCAL-FIRST).")
+
 # Первичка дела — данные, а не команды (этап 9.4). Ничто в конституции, агентах
 # и роутере извлечения раньше не запрещало исполнять инструкции ИЗ материала
 # («игнорируй прошлые указания…»), хотя план назвал этот риск еще 18.08.2026.
@@ -198,10 +218,13 @@ def _vision(png_path):
     """Сырой Apple Vision OCR одного PNG → текст. Сбой → ''."""
     import subprocess
     try:
-        return subprocess.run([OCR_BIN, png_path], capture_output=True,
-                              text=True, timeout=60).stdout
-    except Exception:
-        return ""
+        r = subprocess.run([OCR_BIN, png_path], capture_output=True,
+                           text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as ex:
+        raise OCREngineDown(f"{OCR_BIN} не запустился: {ex}") from ex
+    if r.returncode == 4:  # движок отказал (см. bin/vision-ocr.swift)
+        raise OCREngineDown((r.stderr or "").strip() or f"{OCR_BIN} rc=4")
+    return r.stdout
 
 
 def _enhance(png_path):
@@ -238,8 +261,15 @@ def _vision_doc(png_path):
     try:
         r = subprocess.run([DOC_BIN, png_path, "--json"], capture_output=True,
                            text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as ex:
+        raise OCREngineDown(f"{DOC_BIN} не запустился: {ex}") from ex
+    # 3 — движок мертв (проверено контрольной картинкой), 4 — ошибка Vision,
+    # 5 — провален --selftest. Пустой stdout при этих кодах НЕ пустая страница.
+    if r.returncode in (3, 4, 5):
+        raise OCREngineDown((r.stderr or "").strip() or f"{DOC_BIN} rc={r.returncode}")
+    try:
         d = json.loads(r.stdout)
-    except (OSError, ValueError, subprocess.SubprocessError):
+    except ValueError:
         return None
 
     md = list(d.get("paragraphs", []))
@@ -327,7 +357,12 @@ def render_scan(path, outdir, dpi=DPI, maxp=MAXP):
     names, skipped = [], 0
     for i in range(min(maxp, n)):
         png = os.path.join(outdir, f"page_{i + 1:03d}.png")
-        if os.path.exists(os.path.splitext(png)[0] + ".txt"):
+        # Пустой .txt готовой работой не считается: сломанный движок 05.09.2026
+        # оставил 41 нулевой сайдкар, и следующий прогон «пропускал их как
+        # распознанные» — авария закреплялась в кеше навсегда. Цена честности:
+        # реально пустая страница переспрашивается каждый прогон (1,3 с).
+        txt = os.path.splitext(png)[0] + ".txt"
+        if os.path.exists(txt) and os.path.getsize(txt) > 0:
             skipped += 1
             continue
         pdf[i].render(scale=dpi / 72).to_pil().save(png)
@@ -870,6 +905,9 @@ def main():
             else:
                 body = to_md(p)
                 body = write_cache(md_path, body)
+    except OCREngineDown as ex:
+        print(OCR_ENGINE_DOWN.format(reason=ex), file=sys.stderr)
+        sys.exit(3)
     except Exception as ex:
         print("ERROR при извлечении:", ex)
         sys.exit(2)
