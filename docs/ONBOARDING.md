@@ -1,68 +1,87 @@
-# Onboarding
+# First run with Themiz
 
-<p align="center"><img src="assets/pantheon/workflow/01-intake.png" alt="Intake: case material arriving on the marble table, each sheet becoming a glass plate under Themis's hand" width="100%"></p>
+<p align="center"><img src="assets/pantheon/workflow/01-intake.png" alt="Themiz intake illustration, not an application screenshot" width="100%"></p>
 
-This walkthrough assumes you are a lawyer, not an engineer, and that you have never installed anything from a terminal. Every step says what to do and what you should see afterwards.
+This path uses macOS, Python 3.11 or newer, and Xcode Command Line Tools. Apple Vision recognizes scans only on a Mac. A full Windows or Linux installation has not been verified. Access to your chosen agent and its subscription limits are configured separately.
 
-The short path is the guided one: open the project in Claude Code and run `/themiz-setup`. Themiz introduces herself, asks about your practice one question at a time, explains why each question matters, and installs nothing without your yes. Below is the same road on foot.
+If you prefer a conversation, open the [step-by-step onboarding](ONBOARDING-CHAT.md) in Codex CLI or Claude Code. Both clients are equal entry paths. Ask about disk changes before installing.
 
-You need a Mac for local recognition of scans, Python 3.11 or newer, Xcode Command Line Tools, and Claude Code.
+## Step 1: Check your machine
 
-1. **Get the project.**
+```bash
+sw_vers -productVersion
+python3 --version
+xcode-select -p
+```
 
-   ```bash
-   git clone https://github.com/zarubinvibe/themiz.git
-   cd themiz
-   ```
+The first command shows your installed macOS version, the second Python 3.11 or newer, and the third a developer-tools path. Audio transcription also needs ffmpeg and a local Whisper model. If anything is missing, the installer names it in the final report. A failed or timed-out check has not passed.
 
-   You see a `themiz` folder and your prompt inside it.
+## Step 2: Get the project
 
-2. **Open Claude Code in that folder.**
+```bash
+git clone https://github.com/zarubinvibe/themiz.git
+cd themiz
+```
 
-   ```bash
-   claude
-   ```
+The first command creates a `themiz` folder. The second moves your terminal into it. Without Git, download the [ZIP](https://github.com/zarubinvibe/themiz/archive/refs/heads/main.zip), extract it, and open the extracted folder in your terminal.
 
-   You see the agent start inside the project.
+## Step 3: Install and activate the environment
 
-3. **Run the guided setup.** Type `/themiz-setup`.
+```bash
+bash install.sh
+. .venv/bin/activate
+```
 
-   You see Themiz introduce herself, then ask about your practice: what cases you run most, your region, your courts, where incoming material lands, whether you use an electronic signature, whether you want Telegram reminders. One question at a time, each with the reason and an example answer.
+The installer puts Python packages in `.venv` and prepares the font, local recognition tools, and working directories. It prints a report when finished. After the second command, your prompt will usually start with `(.venv)`.
 
-4. **Let her check the machine before installing.**
+## Step 4: Choose a client
 
-   She names what is missing, how big it is, what it is for, and what will not work without it. Nothing is installed until you say so out loud. Silence counts as no.
+Codex CLI:
 
-5. **Hear the honest limits.** Local recognition of scans uses Apple Vision and exists on macOS only. On Windows or Linux you get text PDFs, DOCX and XLSX, and nothing else. You learn this now, not on the Thursday you bring a folder of scans.
+```bash
+codex
+```
 
-6. **Watch the law corpus arrive.** The codes for your practice download first, the rest fills in afterwards, and they are refreshed monthly.
+Ask it to configure Themiz with the `themiz-setup` skill.
 
-   You see the corpus land on your own disk. Statutes are quoted from it, never paraphrased from memory.
+Claude Code:
 
-7. **Hand over one real case folder.** Not a demo: your own material.
+```bash
+claude
+```
 
-   You see the scans recognised locally, roughly a second and a half per page, and the registration numbers, case numbers and amounts checked by their control digit.
+Then run `/themiz-setup`. In either client, the agent should read the project rules, ask about your practice, and explain required access before working with client material. Both paths configure the same project.
 
-8. **Read the case map.** Parties, dates, claims and evidence in one place.
+## Step 5: Test the boundaries with a safe example
 
-   You see one file to look at instead of two hundred pages to reread.
+Start with a copy of a file that contains no sensitive data. Text extraction and OCR run locally. Fragments sent to the agent are processed by your chosen model provider. Before using a real case, ask the agent to state that boundary in plain language. Do not change source material in `00_intake/` after intake.
 
-9. **Ask for practice for and against you.** One agent looks for support, another for procedural moves, a third deliberately hunts what the other side will use.
+The public clone does not contain a populated legal corpus. Allowed sources and required documents are configured separately. A failed download or unconfirmed version remains an open issue. Text on disk does not prove that a legal provision is current.
 
-   You see both sides of the argument before your opponent makes it.
+## Step 6: Read the case status
 
-10. **Take a draft to review.** One agent writes, a different one that did not write it reviews. Assembly before review is refused, the format is checked before filing, and a personal-data guard runs on every commit.
+First create the case with an agent. Replace `cases/client/case` with the actual path of an existing case folder. This command gives a summary of that specific case, not a general runtime overview.
 
-    You see a draft you edit as a lawyer, not a text you have to verify line by line. The thinking and the decisions stay yours.
+```bash
+python3 scripts/themiz_status.py cases/client/case --brief
+```
 
-## Keeping it current
+Check the fact map against the originals: amounts, case numbers, and quotations need verification. Narrow tasks use FAST. Complex tasks use FULL with separate readers and review. A role that did not write the draft reviews it. You decide whether to sign and file.
 
-Later, when a new version is published, do not clone it again: open the project in Claude Code and run `/themiz-update`. It shows what changed first, pulls only fast-forward changes, never touches your case folders, and re-runs the checks afterwards.
+## Step 7: Open the browser panel if you want it
 
-## If this helped
+```bash
+.venv/bin/python cockpit/app.py
+```
 
-If Themiz took the mechanics off your desk, give it a star: [https://github.com/zarubinvibe/themiz](https://github.com/zarubinvibe/themiz). It takes a second and decides whether other lawyers ever find it.
+Open `http://127.0.0.1:8800`. You will see the local status panel. It is optional, and its agent buttons currently call Claude Code only. Use Codex CLI for Codex tasks.
 
-You have run it on a real case, which makes you the person who can improve it. The path is short: fork the repository, create a branch, commit your change, push the branch, then open a Pull Request. Do not push directly to `main`; the release gate rejects it.
+## Step 8: Update an existing Git clone
 
-Found a step that lies? Open an issue at [https://github.com/zarubinvibe/themiz/issues](https://github.com/zarubinvibe/themiz/issues) and describe it on synthetic data. Never attach real client material to a public issue.
+In Codex, ask to update Themiz with the `themiz-update` skill. In Claude Code, run `/themiz-update`. This update path requires a Git clone. For a ZIP installation, make a fresh Git clone; after checking it, move local data with an agent and do not overwrite source files. Inspect the proposed changes and your working tree first. Updating the program and verifying legal versions remain separate operations.
+
+## Feedback and contributions
+
+Useful? [Give the project a star](https://github.com/zarubinvibe/themiz). Found a bug? [Open an issue](https://github.com/zarubinvibe/themiz/issues) with the command, error message, and a synthetic example. Do not publish client material.
+
+To contribute a fix: fork the repository, create a branch, commit the change, push the branch, then open a Pull Request. Do not push changes directly to `main`.

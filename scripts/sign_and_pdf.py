@@ -18,6 +18,11 @@ import argparse
 import shutil
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from extraction_runtime import ensure_runtime  # noqa: E402
+if __name__ == "__main__":
+    ensure_runtime(entrypoint=__file__)
+
 SIGNATURE_PATH = os.path.join(os.path.dirname(__file__), "../cases/_assets/подпись.png")
 
 def docx_to_pdf_via_word(docx_path: str, pdf_path: str) -> bool:

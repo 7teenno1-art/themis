@@ -5,9 +5,9 @@
 границей процесса его нет вовсе. Значит, все, что уходит чужому инструменту, уходит
 без гейтов, а материалы дела — адвокатская тайна (ст. 8 ФЗ № 63-ФЗ). Отсюда правило,
 которое этот прибор исполняет механически: **за границу уходит обезличенный текст,
-обратно приходит текст, на диск пишет Claude через наши ворота.**
+обратно приходит текст, на диск пишет координатор через наши ворота.**
 
-    --provider ИМЯ --prompt ФАЙЛ [--cmd КОМАНДА] [--timeout СЕК] [--out ФАЙЛ]
+    --role РОЛЬ --prompt ФАЙЛ [--timeout СЕК] [--out ФАЙЛ]
               [--log ФАЙЛ]
     --selftest
 
@@ -62,18 +62,71 @@ def _otkaz_v_strukture(otvet: str, oshibka: str) -> bool:
         if any(s.startswith(m) for m in OTKAZ_MARKERY):
             return True
     return False
-# Реестр объявляет старшую модель и усилие (model/effort), коннектор доносит их
-# до команды универсальными флагами `--model`/`--effort` — БЕЗ имени конкретного
-# CLI: подключение нового CLI остается строкой реестра, а не правкой кода (инвариант
-# 9.1). Значения пусты — флаг не добавляется.
-# ponytail: единый флаг на все CLI; если чей-то CLI ждет иной синтаксис усилия,
-# это поле реестра (model_flag/effort_flag), а не ветка по имени CLI здесь.
-def _model_effort_args(model: str, effort: str) -> list[str]:
+
+
+def _decode_response(raw: str, response_format: str) -> str:
+    """Протокол событий отделяет отказ CLI от слова «Ошибка» в рецензии.
+
+    Незавершенный поток, ошибка либо отсутствие сообщения агента — отказ,
+    даже если дочерний процесс вернул ноль. Обычный текст сохраняет старые ворота.
+    """
+    if response_format == "text":
+        return raw
+    if response_format != "jsonl-events":
+        raise ValueError(f"неизвестный формат ответа: {response_format}")
+    messages = []
+    started = False
+    completed = False
+    for line in raw.splitlines():
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError as e:
+            raise ValueError("некорректный JSON в потоке ответа") from e
+        if not isinstance(event, dict):
+            raise ValueError("событие ответа не объект")
+        kind = event.get("type")
+        if kind in ("error", "turn.failed"):
+            detail = event.get("error", event.get("message", "отказ без описания"))
+            if isinstance(detail, dict):
+                detail = detail.get("message", str(detail))
+            raise ValueError(str(detail))
+        if completed:
+            raise ValueError("событие после завершения одноразового хода")
+        if kind == "thread.started" and not started:
+            continue
+        if kind == "turn.started" and not started:
+            started = True
+        elif kind == "turn.completed":
+            if not started or not any(s.strip() for s in messages):
+                raise ValueError("ход завершен без начатой рецензии и непустого ответа")
+            completed = True
+        elif kind in ("item.started", "item.updated", "item.completed") and started:
+            item = event.get("item")
+            if not isinstance(item, dict):
+                raise ValueError("элемент хода не объект")
+            if kind == "item.completed" and item.get("type") == "agent_message":
+                message = item.get("text")
+                if not isinstance(message, str):
+                    raise ValueError("сообщение агента не текст")
+                messages.append(message)
+        else:
+            raise ValueError(f"неожиданное событие или порядок хода: {kind}")
+    if not completed or not any(s.strip() for s in messages):
+        raise ValueError("нет завершенного хода с непустым ответом агента")
+    return "\n\n".join(messages)
+# Разные CLI задают усилие по-разному. Синтаксис объявляется в реестре,
+# подстановка идет в argv, без shell и без ветвления по имени провайдера.
+def _model_effort_args(model: str, effort: str, effort_args=None) -> list[str]:
     args = []
     if model:
         args += ["--model", model]
     if effort:
-        args += ["--effort", effort]
+        template = ["--effort", "{effort}"] if effort_args is None else effort_args
+        if not isinstance(template, list) or not all(isinstance(s, str) for s in template):
+            raise ValueError("effort_args должен быть списком строк")
+        args += [s.replace("{effort}", effort) for s in template]
     return args
 # Запрос уходит аргументом командной строки, а у аргумента есть предел ОС
 # (macOS ~1 МБ на все). Упереться в него посреди прогона — молчаливый отказ
@@ -151,7 +204,8 @@ def zapisat_zhurnal(log: Path | None, provider: str, dlina: int, otpechatok: str
 
 def call(provider: str, prompt: Path, cmd=None, timeout: int = 300,
          out: Path | None = None, log: Path | None = None,
-         model: str = "", effort: str = "") -> int:
+         model: str = "", effort: str = "", effort_args=None,
+         response_format: str = "text") -> int:
     # Отказы ПЕРИМЕТРА — попытки вынести наружу материалы дела (симлинк за
     # границей, файл-переросток) — пишутся в журнал ровно так же, как отказы
     # провайдера: журнал ставят именно ради этих событий, слепым к ним он
@@ -177,7 +231,10 @@ def call(provider: str, prompt: Path, cmd=None, timeout: int = 300,
         return _otkaz(f"для {provider} нет команды из реестра")
     # Старшая модель и усилие из реестра доезжают до команды флагами:
     # требование владельца исполняется, а не только объявляется.
-    argv = list(argv) + _model_effort_args(model, effort)
+    try:
+        argv = list(argv) + _model_effort_args(model, effort, effort_args)
+    except ValueError as e:
+        return _otkaz(f"неверная команда из реестра: {e}")
 
     with tempfile.TemporaryDirectory(prefix="themiz-foreign-") as td:
         # Рабочий каталог — ВНУТРИ временного, чтобы и на уровень выше чужому CLI
@@ -211,17 +268,24 @@ def call(provider: str, prompt: Path, cmd=None, timeout: int = 300,
             if karta_soderzhimoe is not None:
                 karta.write_bytes(karta_soderzhimoe)   # карта нужна для обратной подстановки
 
-        # Три сигнала успеха: код, непустой ответ, отсутствие маркеров отказа.
+        if response_format != "text":
+            try:
+                otvet = _decode_response(otvet, response_format)
+            except ValueError as e:
+                zapisat_zhurnal(log, provider, len(text), otpechatok, "отказ: протокол ответа")
+                return _otkaz(f"{provider}: {e}; {oshibka.strip()[-600:]}")
+        # Три сигнала успеха: код, непустой ответ, отсутствие отказа в протоколе.
         if code != 0:
             zapisat_zhurnal(log, provider, len(text), otpechatok, f"отказ: код {code}")
-            return _otkaz(f"{provider} вернул код {code}: {oshibka.strip()[:200]}")
+            reason = (oshibka.strip() or otvet.strip() or "нет сообщения об ошибке")
+            return _otkaz(f"{provider} вернул код {code}: {reason[-1200:]}")
         if not otvet.strip():
             zapisat_zhurnal(log, provider, len(text), otpechatok, "отказ: пустой ответ")
             return _otkaz(f"{provider} ответил пустотой — код 0 сам по себе не сигнал")
-        if _otkaz_v_strukture(otvet, oshibka):
+        if response_format == "text" and _otkaz_v_strukture(otvet, oshibka):
             zapisat_zhurnal(log, provider, len(text), otpechatok, "отказ: маркер в начале строки")
             return _otkaz(f"{provider} вернул отказ (маркер в начале строки): "
-                          f"{otvet.strip()[:150]}")
+                          f"{(otvet.strip() or oshibka.strip())[-1200:]}")
 
         zapisat_zhurnal(log, provider, len(text), otpechatok, "ok")
         if out:
@@ -312,6 +376,11 @@ def selftest() -> int:
         me_args = me_out.read_text(encoding="utf-8")
         assert "--model senior-model" in me_args, "старшая модель не доехала до вызова"
         assert "--effort max" in me_args, "усилие не доехало до вызова"
+        assert call("proba", chistyy, me, model="senior-model", effort="high",
+                    effort_args=["-c", "model_reasoning_effort={effort}"]) == 0
+        me_args = me_out.read_text(encoding="utf-8")
+        assert "-c model_reasoning_effort=high" in me_args
+        assert "--effort" not in me_args, "чужой CLI получил неподдерживаемый флаг"
         # Ось обихода: реестр не задал model/effort — флаги не навязываются.
         me_out.write_text("", encoding="utf-8")
         assert call("proba", chistyy, me) == 0
@@ -381,14 +450,21 @@ def main() -> int:
             router += ["--cache", a.cache]
         p = subprocess.run(router, capture_output=True, text=True)
         try:
-            chosen = json.loads(p.stdout).get("executor") or {}
+            decision = json.loads(p.stdout)
+            chosen = decision.get("executor") or {}
         except ValueError:
+            decision = {}
             chosen = {}
         if p.returncode or not chosen:
-            return _otkaz("роутер не назначил исполнителя")
+            reasons = "; ".join(f"{s.get('name')}: {s.get('reason')}"
+                                for s in decision.get("skipped", []))
+            return _otkaz("роутер не назначил исполнителя: " +
+                          (reasons or p.stderr.strip() or "нет результата пробы"))
         return call(chosen["name"], Path(a.prompt), chosen["invoke"], a.timeout,
                     Path(a.out) if a.out else None, Path(a.log) if a.log else None,
-                    model=chosen.get("model", ""), effort=chosen.get("effort", ""))
+                    model=chosen.get("model", ""), effort=chosen.get("effort", ""),
+                    effort_args=chosen.get("effort_args"),
+                    response_format=chosen.get("response_format", "text"))
     # Шов «свободная команда мимо реестра» закрыт: он исполнял любой бинарник без
     # роли, класса данных и пробы — проверено, чужой процесс получал текст дела
     # целиком (проба 20.08.2026). Приемка этапа 7 переведена на --role тем же

@@ -1,0 +1,34 @@
+NOTICE — Фемида
+
+ГЕНЕРИРУЕТСЯ: python3 scripts/setup_doctor.py --licenses
+Рукой не править: собирается из фактического состава (импорты кода,
+CLI-вызовы, install.sh) — ручная правка разойдется с составом.
+
+Продукт включает сторонние компоненты:
+
+  certifi 2026.5.20 — MPL-2.0
+  fastapi 0.141.1 — MIT
+  graphifyy 0.7.11 — MIT License Copyright (c) 2026 Safi Shamsi Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+  httpx 0.28.1 — BSD-3-Clause
+  markitdown 0.1.7 — MIT
+  numpy 2.4.4 — BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0
+  openai-whisper 20250625 — MIT
+  packaging 26.2 — Apache-2.0 OR BSD-2-Clause
+  pillow 12.3.0 — MIT-CMU
+  pymupdf 1.28.2 — Dual Licensed - GNU AFFERO GPL 3.0 or Artifex Commercial License
+  pypdf 6.18.0 — BSD-3-Clause
+  pypdfium2 5.13.0 — BSD-3-Clause, Apache-2.0, dependency licenses
+  python-docx 1.2.0 — MIT
+  pyyaml 6.0.3 — MIT
+  reportlab 4.5.1 — BSD license (see license.txt for details), Copyright (c) 2000-2025, ReportLab Inc.
+  uvicorn 0.52.4 — BSD-3-Clause
+
+Объявления, требуемые лицензиями:
+
+* MPL-2.0 (certifi): пофайловый копилефт. Компоненты используются без изменений; тексты лицензий — в THIRD-PARTY-LICENSES; исходный код каждого пакета доступен на PyPI по его имени.
+
+* Разрешительные лицензии (MIT, BSD, Apache-2.0, MIT-CMU и др.): уведомления об авторских правах и тексты лицензий всех компонентов перенесены в THIRD-PARTY-LICENSES.
+
+Записанные решения владельца:
+
+* pymupdf 1.28.2 — Dual Licensed - GNU AFFERO GPL 3.0 or Artifex Commercial License: AGPL входит в состав осознанно: pymupdf — явный запасной путь markdown_extract (_mupdf_perpage) для материалов, где pypdfium2 читает около нуля (2 из 608 на корпусе кеша); задача M09 возвращает его этим маршрутом (решение от 02.09.2026).

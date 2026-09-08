@@ -17,6 +17,7 @@ general-purpose вне реестра ролей; три координатор�
     --audit-run ДИР [--amendment T]  разбор транскриптов роя: general-purpose под охоту,
                                    спавн собственного типа, слепой веб, потерянная поправка
     --stale ДИР                    транскрипты со сроком жизни выше потолка — доклад, не снятие
+    --review-verdict ДОКУМЕНТ ЖУРНАЛ  настоящий вердикт есть; пометка «без Кони» — отказ
     --selftest
 
 Потолок ЧИСЛА агентов исполняется счетом живых (live_register/live_release), а не
@@ -179,6 +180,62 @@ def cmd_accept(marker: str, path: str) -> int:
           f"законченной, но артефакт на диске его не подтверждает — считается незакрытым.",
           file=sys.stderr)
     return 1
+
+
+# Вердикты совпадают с закрытым словарем verdict.py, но «без Кони» сюда
+# намеренно не входит: это признание отсутствия рецензента, а не рецензия.
+REVIEW_VERDICTS = frozenset({
+    "ГОТОВ К ПОДАЧЕ",
+    "ПРОВЕРЕНО ЧАСТИЧНО",
+    "ТРЕБУЕТ ПРАВОК",
+    "КРИТИЧЕСКИЕ ОШИБКИ",
+})
+NO_REVIEW_PREFIX = "ПРОВЕРЕНО БЕЗ КОНИ"
+
+
+def review_verdict_problem(document: str | Path, journal: str | Path) -> str:
+    """Причина отказа по последней записи документа или пустая строка.
+
+    Журнал JSONL читается как данные: слово «проверка» в комментарии не
+    блокирует нормальный вердикт. Битые и служебные строки не считаются
+    рецензией. Проверку подписи и источника по-прежнему делает verdict.py.
+    """
+    name, path = Path(document).name, Path(journal)
+    verdicts = []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        lines = []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(entry, dict) or entry.get("document") != name:
+            continue
+        verdict = entry.get("verdict")
+        if isinstance(verdict, str) and verdict.strip():
+            verdicts.append(verdict.strip())
+    if not verdicts:
+        return (f"{name}: в журнале {path} нет записи вердикта вовсе — "
+                "независимая рецензия не подтверждена")
+    verdict = verdicts[-1]
+    if verdict.casefold().startswith(NO_REVIEW_PREFIX.casefold()):
+        return (f"{name}: в журнале {path} стоит пометка «{verdict}» — "
+                "это признание отсутствия рецензента, а не вердикт")
+    if verdict not in REVIEW_VERDICTS:
+        return (f"{name}: запись «{verdict}» в журнале {path} не является "
+                "вердиктом независимого рецензента")
+    return ""
+
+
+def cmd_review_verdict(document: str, journal: str) -> int:
+    problem = review_verdict_problem(document, journal)
+    if problem:
+        print("БЛОК КОНТРАКТА РОЯ: " + problem, file=sys.stderr)
+        return 1
+    print(f"рецензия по {Path(document).name}: настоящий вердикт в {journal}")
+    return 0
 
 
 # ── Аудит frontmatter агентов ↔ политика (item 2) ─────────────────────────────
@@ -613,6 +670,25 @@ def selftest() -> int:
         good.write_text("тело без маркера\n", encoding="utf-8")
         assert cmd_accept(r"## СОВЕТ ЗАВЕРШЕН", str(good)) == 1
 
+        # T217: настоящий вердикт проходит; пометка и отсутствие записи — нет.
+        review_log = d / "verdicts.jsonl"
+        review_log.write_text(
+            json.dumps({"document": "isk.md", "verdict": "ГОТОВ К ПОДАЧЕ",
+                        "comment": "Проверка трех линз завершена."}, ensure_ascii=False)
+            + "\n" +
+            json.dumps({"document": "otzyv.md",
+                        "verdict": "ПРОВЕРЕНО БЕЗ КОНИ (ГОТОВ К ПОДАЧЕ)"},
+                       ensure_ascii=False) + "\n",
+            encoding="utf-8")
+        assert review_verdict_problem("isk.md", review_log) == "", \
+            "настоящий вердикт с упоминанием проверки отбит"
+        no_koni = review_verdict_problem("otzyv.md", review_log)
+        assert "otzyv.md" in no_koni and str(review_log) in no_koni and "пометка" in no_koni, \
+            "пометка без рецензента не отбита с именем и путем"
+        missing = review_verdict_problem("zhaloba.md", review_log)
+        assert "zhaloba.md" in missing and str(review_log) in missing and "вовсе" in missing, \
+            "отсутствие записи не отбито отдельной причиной"
+
         # audit-agents
         ad = d / "agents"
         ad.mkdir()
@@ -801,7 +877,8 @@ def selftest() -> int:
         empty.mkdir()
         assert stale(empty) == 0
 
-    print("selftest пройден: лимиты посчитаны, приемка/аудит/подмена/контракт листа судятся fail-closed")
+    print("selftest пройден: лимиты посчитаны, приемка/аудит/подмена/контракт листа/"
+          "независимая рецензия судятся fail-closed")
     return 0
 
 
@@ -815,6 +892,8 @@ def main() -> int:
     ap.add_argument("--audit-run", metavar="ДИР")
     ap.add_argument("--amendment", default="", help="действующая поправка прогона для --audit-run")
     ap.add_argument("--stale", metavar="ДИР")
+    ap.add_argument("--review-verdict", nargs=2, metavar=("ДОКУМЕНТ", "ЖУРНАЛ"),
+                    help="проверить, что по документу есть настоящий вердикт")
     ap.add_argument("--verdict", nargs=2, metavar=("ТИП", "ПРОМПТ"),
                     help="живой вердикт спавна: тип листа + текст промпта")
     ap.add_argument("--own-type", default="", help="тип координатора для --verdict")
@@ -824,6 +903,8 @@ def main() -> int:
         return selftest()
     if a.verdict:
         return cmd_verdict(a.verdict[0], a.verdict[1], a.own_type, a.amendment)
+    if a.review_verdict:
+        return cmd_review_verdict(a.review_verdict[0], a.review_verdict[1])
     if a.limits:
         return cmd_limits(a.json)
     if a.accept:
@@ -838,7 +919,7 @@ def main() -> int:
     if a.stale:
         return stale(Path(a.stale))
     ap.error("нужен один из: --limits, --accept, --audit-agents, --substitutions, "
-             "--audit-run, --stale, --selftest")
+             "--audit-run, --stale, --review-verdict, --selftest")
 
 
 if __name__ == "__main__":

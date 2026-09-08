@@ -1,39 +1,17 @@
 {
   "schema_version": 1,
   "kind": "pantheon-generation",
-  "selection_mode": "managed-frontier",
+  "receipt_id": "themiz-takt-gold-2026-09-08",
+  "selection_mode": "managed-runtime",
   "runtime": "codex",
   "tool": "image_gen",
-  "route_id": "codex:image_gen:managed-frontier",
+  "route_id": "codex:image_gen",
   "model": {
     "id": "provider-managed",
-    "revision": "provider-managed",
-    "tier": "frontier"
+    "revision": "not-exposed"
   },
-  "quality": "highest",
-  "generation_id": "pantheon-takt-themiz-2026-09-03",
-  "generated_at": "2026-09-03T17:54:40Z",
-  "capability_snapshot": {
-    "checked_at": "2026-09-03T17:54:40Z",
-    "routes": [
-      {
-        "id": "codex:image_gen:managed-frontier",
-        "rank": 1,
-        "available": true,
-        "tier": "frontier",
-        "quality": "highest",
-        "model": {
-          "id": "provider-managed",
-          "revision": "provider-managed",
-          "tier": "frontier"
-        }
-      }
-    ]
-  },
-  "prompt": {
-    "path": ".github/pantheon/takt-prompt.txt",
-    "sha256": "0583e151df03042559a0f2ab38a48d19b1685b07b7ee0049dfd2d9cab9ab2f65"
-  },
+  "quality": "provider-managed",
+  "recorded_at": "2026-09-08T18:48:06Z",
   "references": [
     {
       "role": "style-anchor",
@@ -50,41 +28,91 @@
     {
       "role": "prop-sheet",
       "sha256": "21062daf12fa5b0ad5086c0d61e473754600290a444546ac4b13b929de64ddfc"
+    }
+  ],
+  "sequential_order": [
+    "ru",
+    "en",
+    "zh"
+  ],
+  "runs": [
+    {
+      "local_receipt_id": "themiz-takt-gold-2026-09-08-ru",
+      "provider_generation_id": null,
+      "language": "ru",
+      "prompt": {
+        "path": ".github/pantheon/takt-gold-ru-prompt.txt",
+        "sha256": "e392d7eec06da19eccd0d8740400528fcfc060fb9d562e3c1b0052f1eefbab21"
+      },
+      "composition_reference_sha256": "3c95f186d9acc59690cf63bd5d2e44934bcad0996061e1c73f498af24c749a19",
+      "output": {
+        "path": "docs/assets/pantheon/takt-ru.png",
+        "sha256": "2d1200b3d07bd099799eb51235a68da1deeb49094ab592ceb0d6d6a908c9a228",
+        "width": 1672,
+        "height": 941
+      }
     },
     {
-      "role": "jurist-sheet",
-      "sha256": "f22443fc8f38f918feaf9fdfa405262f111c29fdad0efddfc613ad940bf0ec0b"
+      "local_receipt_id": "themiz-takt-gold-2026-09-08-en",
+      "provider_generation_id": null,
+      "language": "en",
+      "prompt": {
+        "path": ".github/pantheon/takt-gold-en-prompt.txt",
+        "sha256": "a90f13083b78d7c03d66d480a8ed720bdbcbc5afbf9cda12e2887217e6290bc9"
+      },
+      "composition_reference_sha256": "2d1200b3d07bd099799eb51235a68da1deeb49094ab592ceb0d6d6a908c9a228",
+      "output": {
+        "path": "docs/assets/pantheon/takt-en.png",
+        "sha256": "50c3833b7fd39fa4290a60073f24473b79bbc9cf76e6747706ae808e18069d4a",
+        "width": 1672,
+        "height": 941
+      }
+    },
+    {
+      "local_receipt_id": "themiz-takt-gold-2026-09-08-zh",
+      "provider_generation_id": null,
+      "language": "zh",
+      "prompt": {
+        "path": ".github/pantheon/takt-gold-zh-prompt.txt",
+        "sha256": "99313efc5bb9e4c6d1bab4758ac81e78e658078007a08d511f297b424f9d0548"
+      },
+      "composition_reference_sha256": "50c3833b7fd39fa4290a60073f24473b79bbc9cf76e6747706ae808e18069d4a",
+      "output": {
+        "path": "docs/assets/pantheon/takt-zh.png",
+        "sha256": "20c9bca90698c1159d19359b03cf2d8d7b30a24c3ee4d31606091a379f28265b",
+        "width": 1672,
+        "height": 941
+      }
     }
   ],
   "outputs": [
     {
       "role": "takt-source",
       "path": "docs/assets/pantheon/takt-source.png",
-      "sha256": "17f2095e4850b0e602f77cb992e223d0132dd424d8b124c294453c26f65c974e"
+      "sha256": "2d1200b3d07bd099799eb51235a68da1deeb49094ab592ceb0d6d6a908c9a228"
     },
     {
       "role": "takt-en",
       "path": "docs/assets/pantheon/takt-en.png",
-      "sha256": "5adb345e99492f0f5a1938ece503ce1709b445e1dfb5b1b98834fa46033390c3"
+      "sha256": "50c3833b7fd39fa4290a60073f24473b79bbc9cf76e6747706ae808e18069d4a"
     },
     {
       "role": "takt-ru",
       "path": "docs/assets/pantheon/takt-ru.png",
-      "sha256": "3c95f186d9acc59690cf63bd5d2e44934bcad0996061e1c73f498af24c749a19"
+      "sha256": "2d1200b3d07bd099799eb51235a68da1deeb49094ab592ceb0d6d6a908c9a228"
     },
     {
       "role": "takt-zh",
       "path": "docs/assets/pantheon/takt-zh.png",
-      "sha256": "75b3a6f1a8d7c2a09c1e6632cb81013ad5277f180ac960fa82b92fce958124db"
+      "sha256": "20c9bca90698c1159d19359b03cf2d8d7b30a24c3ee4d31606091a379f28265b"
     }
   ],
   "label_layer": {
-    "note": "кадр рожден с пустыми мраморными плитами; подписи поставлены детерминированно из visuals.stages, поэтому текст совпадает с манифестом посимвольно на каждом языке",
-    "geometry": ".github/pantheon/takt-plity.json",
-    "geometry_sha256": "57f58bea02f939c91bae4d635d6b81458f7ad60332bf625552caf6b99bfc1d7a",
-    "font_en": "assets/fonts/PT_Serif-Web-Bold.ttf",
-    "font_ru": "assets/fonts/PT_Serif-Web-Bold.ttf",
-    "font_zh": "Songti SC",
-    "ink": "#3E3A36"
+    "method": "native-image-generation",
+    "deterministic": false,
+    "finish": "gold paint inside incised marble lettering",
+    "text_verification": "visual comparison with visuals.stages by root and independent gpt-6-astra reviewer",
+    "direction_path": ".github/pantheon/takt-gold-direction.md",
+    "note": "Source is the accepted labeled RU frame. No deterministic caption pass or raster postprocessing. Provider model/revision, generation identifiers, quality settings and per-run timestamps were not exposed; local receipt identifiers are not provider generation IDs."
   }
 }

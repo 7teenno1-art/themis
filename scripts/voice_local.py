@@ -37,6 +37,10 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from extraction_runtime import ensure_runtime  # noqa: E402
+if __name__ == "__main__":
+    ensure_runtime(entrypoint=__file__)
 import sreda  # noqa: E402,F401  переходный период имен переменных
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
@@ -107,11 +111,18 @@ def _whisper_model_est(put: str) -> bool:
     докачка и есть то обращение наружу, которого тут быть не должно."""
     if "whisper" not in Path(put).name.lower():
         return True
-    for d in (os.environ.get("WHISPER_MODEL_DIR"), Path.home() / ".cache" / "whisper",
-              Path.home() / ".cache" / "whisper.cpp"):
-        if d and Path(d).is_dir() and any(Path(d).iterdir()):
-            return True
-    return False
+    return _small_model_dir() is not None
+
+
+def _small_model_dir() -> Path | None:
+    """Only an exact local small.pt is accepted; no default turbo download."""
+    configured = os.environ.get("WHISPER_MODEL_DIR", "").strip()
+    dirs = ([Path(configured).expanduser()] if configured else
+            [Path.home() / ".cache" / "whisper", Path.home() / ".cache" / "whisper.cpp"])
+    for model_dir in dirs:
+        if (model_dir / "small.pt").is_file():
+            return model_dir
+    return None
 
 
 def transcribe(src: str, language: str = "ru") -> dict:
@@ -139,6 +150,11 @@ def transcribe(src: str, language: str = "ru") -> dict:
         if imya.startswith("whisper") and "cli" not in imya and "cpp" not in imya:
             argv = [e["path"], str(put), "--language", language, "--output_format", "txt",
                     "--output_dir", td, "--fp16", "False"]
+            model_dir = _small_model_dir()
+            if model_dir:
+                # Keep the model lookup inside the approved local directory;
+                # never let Whisper fall back to its default download path.
+                argv[1:1] = ["--model", "small", "--model_dir", str(model_dir)]
         else:
             argv = [e["path"], str(put)]
         try:

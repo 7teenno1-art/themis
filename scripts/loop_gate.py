@@ -381,7 +381,9 @@ def _hook_probe_env(tmp):
     os.chmod(entire, 0o755)
 
     env = _isolated_git_env(tmp)
-    env["PATH"] = bindir + os.pathsep + os.defpath
+    git_dirs = [os.path.dirname(path) for path in ("/opt/homebrew/bin/git",
+                "/usr/local/bin/git") if os.path.isfile(path)]
+    env["PATH"] = bindir + os.pathsep + os.pathsep.join(git_dirs + [os.defpath])
     return env
 
 
@@ -432,7 +434,9 @@ def _probe_hook_call(path, name, root):
         stdin_path = os.path.join(tmp, "stdin")
         with open(stdin_path, "w", encoding="utf-8") as f:
             f.write(stdin)
-        cmd = ["git", "-c", f"core.hooksPath={hooks_dir}", "hook", "run",
+        git = next((path for path in ("/opt/homebrew/bin/git", "/usr/local/bin/git")
+                    if os.path.isfile(path)), "git")
+        cmd = [git, "-c", f"core.hooksPath={hooks_dir}", "hook", "run",
                f"--to-stdin={stdin_path}", name]
         if argv:
             cmd += ["--", *argv]

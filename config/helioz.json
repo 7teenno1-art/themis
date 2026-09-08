@@ -4,9 +4,8 @@
     "end": "09:00"
   },
   "slots_per_cli": {
-    "claude": 2,
-    "codex": 2,
-    "kimi": 2
+    "codex-executor": 1,
+    "codex-reviewer": 1
   },
   "watchdog_stale_min": 15,
   "run_timeout_sec": 5400,
@@ -21,13 +20,12 @@
     "min_advisors": 3,
     "max_advisors": 5,
     "synthesis_order": [
-      "claude",
-      "codex",
-      "kimi"
+      "codex-reviewer",
+      "codex-executor"
     ]
   },
-  "orchestrator_cmd": "THEMIZ_HOME=\"${THEMIZ_HOME:-$(pwd)}\"; HELIOZ_ROOT=\"${HELIOZ_ROOT:-../helioz}\"; cd \"$THEMIZ_HOME\" && HELIOZ_HOME=\"$THEMIZ_HOME\" claude -p \"$(cat \"$HELIOZ_ROOT/ORCHESTRATOR.md\")\" --permission-mode acceptEdits",
+  "orchestrator_cmd": "THEMIZ_HOME=\"${THEMIZ_HOME:-$(pwd)}\"; HELIOZ_ROOT=\"${HELIOZ_ROOT:-../helioz}\"; cd \"$THEMIZ_HOME\" && HELIOZ_HOME=\"$THEMIZ_HOME\" codex --ask-for-approval never -m gpt-6-astra -c 'model_reasoning_effort=\"high\"' exec --skip-git-repo-check -s workspace-write -c 'approval_policy=\"never\"' \"$(cat \"$HELIOZ_ROOT/ORCHESTRATOR.md\")\"",
   "secrets_env": "",
   "_дом_миссии": "Ремонт конвейера Фемиды. Очередь, состояние и задачи живут здесь; внешний такт Гелиоза не трогается. Решение владельца 25.08.2026.",
-  "_pochemu_dva_slota_codex": "02.09.2026, ремонт: четыре задачи стояли за одним слотом codex при простаивающем claude. Канон Гелиоза объявляет три слота (решение владельца 30.08), дом Фемиды нес копию с единицей. Поднято до ДВУХ, не до трех: журнал уроков предупреждает, что зонд не отличает занятый CLI от мертвого. Цена ошибки - отказ старта, не порча. Откат: вернуть 1 либо config/helioz.json.rezerv-2026-09-02. 02.09.2026: claude поднят до 2 тем же порядком - два слота codex отработали прогон без отказов зонда, оба CLI обновлены (claude 2.1.258, codex 0.152.1). Откат: вернуть 1. 02.09.2026 09:40: kimi поднят до 2 - зонд показал его живым (20132мс), а codex мертвым (code 1, пустой ответ). Решение владельца: писать Kimi, судить оркестратором."
+  "_pochemu_dva_slota_codex": "Гелиоз считает слоты по точному alias, а не по бинарю: каждому Codex alias задан явный предел 1. Общего счетчика аккаунта здесь нет; executor Sol и reviewer Astra делят квоту поставщика. Claude/Kimi не требуются и не входят в ротацию."
 }

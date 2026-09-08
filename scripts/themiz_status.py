@@ -28,6 +28,7 @@ import subprocess
 import sys
 from pathlib import Path
 import sreda  # noqa: E402,F401  переходный период имен переменных
+import spawn_registry  # noqa: E402
 
 # Кеш роутера извлечения: если файл там есть, он уже распознан и
 # перераспознавать его запрещено (конституция, раздел LOCAL-FIRST).
@@ -479,11 +480,12 @@ def declared_track(case: Path) -> str:
     return track_hint(case)
 
 
-def aktivnye_agenty(case: Path) -> str:
-    """Кто работает по делу СЕЙЧАС. Надежный сигнал на диске — лок черновиков .owner
-    (его пишет/держит claude_guard). Субагенты живут ВНУТРИ процесса claude, отдельными
-    процессами ОС их не видно — ceiling: печатаем лок, не ps. Данных нет — так и говорим,
-    но строка обязана быть (25.08 статус молчал о том, кто еще пишет в дело)."""
+def aktivnye_agenty(case: Path, now=None) -> str:
+    """Кто работает по делу: дисковый реестр спавнов и лок черновиков."""
+    try:
+        line = spawn_registry.summary(case, now=now)
+    except spawn_registry.RegistryError as exc:
+        line = f"активные агенты: ОШИБКА реестра — {exc}"
     owner = case / ".agent" / "drafts" / ".owner"
     if owner.is_file():
         try:
@@ -492,18 +494,33 @@ def aktivnye_agenty(case: Path) -> str:
             who = ""
         who = who or "(лок без имени)"
         stale = " ⚠ лок протух (>45 мин)" if age_minutes(owner) > 45 else ""
-        return f"активные агенты: лок черновиков держит {who}{stale}"
-    return "активные агенты: нет данных"
+        line += f"; лок черновиков держит {who}{stale}"
+    return line
 
 
 def rashod_stroka(case: Path, track: str) -> tuple[str, bool, bool]:
     """(строка, не_измерен, перерасход). Расход считает прибор token_ledger по свежей
     сессии проекта — не глаз и не самоотчет модели. Ledger недоступен/молчит — «не
-    измерен» и это ненулевой код (25.08 расход прочли как фон и продолжили)."""
+    измерен». При подписке это диагностика, не денежный запрет продолжения."""
     try:
         import token_ledger as tl
     except Exception as e:  # noqa: BLE001 — любой сбой импорта = не измерено
         return (f"расход: не измерен — token_ledger недоступен ({e})", True, False)
+    if tl.active_provider() == "codex":
+        try:
+            total, _sessions = tl.codex_usage(os.getcwd())
+        except Exception as e:  # noqa: BLE001 — Codex без текущей сессии не измерен
+            return (f"расход: не измерен — Codex events недоступны ({e})", True, False)
+        if total <= 0:
+            return ("расход: не измерен — Codex events дали 0 токенов; "
+                    "это не подтверждает бюджет", True, False)
+        budget = tl.TRACK_BUDGET.get(track) or tl.TRACK_BUDGET["FULL"]
+        over = total > budget and not tl.SUBSCRIPTION_ONLY
+        line = (f"расход сессии Codex: {total:,} ток. · ориентир {track} {budget:,} ток."
+                .replace(",", " "))
+        if tl.SUBSCRIPTION_ONLY:
+            line += "; норма только инфо, остаток подписки по ней не определяется"
+        return line, False, over
     try:
         path = tl.latest_session(str(case))
     except Exception:
@@ -709,8 +726,14 @@ def main() -> int:
     track = declared_track(case)
     rline, ne_izmeren, pererashod = rashod_stroka(case, track)
     print(f"  {rline}")
-    if pererashod:
+    try:
+        from token_ledger import SUBSCRIPTION_ONLY
+    except (ImportError, AttributeError):
+        SUBSCRIPTION_ONLY = False  # сломанный прибор не дает обхода диагностики
+    if pererashod and not SUBSCRIPTION_ONLY:
         print("  СТОП: перерасход, доложить владельцу")
+    elif pererashod or (ne_izmeren and SUBSCRIPTION_ONLY):
+        print("  Подписка: это наблюдение за токенами, не запрет работы и не остаток квоты.")
 
     est, plenumov = _korpus_counts(case)
     korpus_nepolon = est < NUZHNO_KODEKSOV or plenumov == 0
@@ -722,14 +745,23 @@ def main() -> int:
     print("  маркеров проверено: 4 (карта · практика · позиция · вердикт Кони)")
 
     rc = 0
-    if pererashod:
+    if pererashod and not SUBSCRIPTION_ONLY:
         rc = 3
-    elif ne_izmeren or korpus_nepolon:
+    elif (ne_izmeren and not SUBSCRIPTION_ONLY) or korpus_nepolon:
         rc = 2
     return rc
 
 
 def selftest() -> int:
+    # Legacy selftest uses synthetic Claude ledger; provider is explicit by env fixture.
+    from unittest.mock import patch
+    with patch.dict(os.environ):
+        os.environ.pop("CODEX_THREAD_ID", None)
+        os.environ.pop("CODEX_SESSION_ID", None)
+        return _selftest_claude()
+
+
+def _selftest_claude() -> int:
     """Без сети и без диска проекта. Фикстуры враждебные: каждая метит в ветку,
     которая уже ломалась или может тихо соврать."""
     import tempfile

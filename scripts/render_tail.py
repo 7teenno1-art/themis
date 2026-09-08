@@ -15,6 +15,9 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from extraction_runtime import ensure_runtime  # noqa: E402
+if __name__ == "__main__":
+    ensure_runtime(entrypoint=__file__)
 import markdown_extract as m  # noqa: E402  (DPI, OCR_BIN, ocr_pages)
 
 

@@ -107,6 +107,14 @@ def _entry_ok(name: str, entry: object) -> dict:
     for key in ("model", "effort"):
         if not isinstance(entry.get(key), str) or not entry[key]:
             raise ValueError(f"{name}: {key} должен быть непустой строкой")
+    if "enabled" in entry and not isinstance(entry["enabled"], bool):
+        raise ValueError(f"{name}: enabled должен быть булевым")
+    if entry.get("response_format", "text") not in ("text", "jsonl-events"):
+        raise ValueError(f"{name}: неизвестный response_format")
+    if "effort_args" in entry:
+        value = entry["effort_args"]
+        if not isinstance(value, list) or not all(isinstance(v, str) and v for v in value):
+            raise ValueError(f"{name}: effort_args должен быть списком непустых строк")
     classes = entry.get("data_classes")
     if not isinstance(classes, list) or not classes or not all(isinstance(v, str) and v for v in classes):
         raise ValueError(f"{name}: data_classes должен быть непустым списком строк")
@@ -203,6 +211,9 @@ def decide(role: str, registry: dict, cache: str | None) -> dict:
     # selected=None — fail-closed), а не-pd идут на объявленных провайдерах.
     skipped, available = [], []
     for name, entry in registry.items():
+        if entry.get("enabled") is False:
+            skipped.append({"name": name, "reason": "отключен в профиле"})
+            continue
         missing = [key for key in REQUIRED_KEYS if key not in entry]
         if missing:
             skipped.append({"name": name, "reason": "нет " + ", ".join(missing)})

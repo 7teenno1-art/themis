@@ -281,6 +281,33 @@ def check_corpus() -> list[dict]:
     return out
 
 
+def check_lynceuz() -> dict:
+    """Фоновый public-only corpus требует локальный Линкей; локальная работа — нет."""
+    home = Path(os.environ.get("LYNCEUZ_HOME", str(Path.home() / "Проекты" / "lynceuz")))
+    entry = home / "src" / "lynceuz.mjs"
+    if not entry.is_file():
+        return check("Линкей (фоновый корпус)", WARN,
+                     "не найден: фоновая подкачка права не готова; локальное чтение работает",
+                     "нужен Node 20+; git clone https://github.com/zarubinvibe/lynceuz.git; "
+                     "cd lynceuz && node scripts/onboard.mjs; если каталог иной — "
+                     "указать LYNCEUZ_HOME")
+    if not shutil.which("node"):
+        return check("Линкей (фоновый корпус)", WARN,
+                     "найден исходник, но node не найден: фоновая подкачка права не готова",
+                     "поставить Node 20+ по README Lynceuz, затем повторить проверку")
+    rc, output = run(["node", "--version"])
+    match = re.search(r"v?(\d+)", output)
+    if rc != 0 or not match or int(match.group(1)) < 20:
+        return check("Линкей (фоновый корпус)", WARN,
+                     f"найден исходник, но нужен Node 20+ (получен: {output.strip() or '—'})",
+                     "поставить Node 20+ по README Lynceuz, затем повторить проверку")
+    return check("Линкей (фоновый корпус)", WARN,
+                 f"исходник и Node {match.group(1)} есть; транспорт не проверен, "
+                 "фоновая подкачка права не подтверждена",
+                 "для проверки транспорта нужен отдельный разрешенный запрос; "
+                 "локальное чтение работает без Lynceuz")
+
+
 # Скилл едет внутри репозитория; домашняя копия — запасной путь (у владельца
 # он живет и правится там). Ищем в обоих местах, иначе свежая установка на
 # другом устройстве краснеет на ровном месте (прецедент 21.08.2026).
@@ -373,6 +400,11 @@ def probe_cli() -> list[dict]:
                  "how": str(e), "why": "реестр CLI не прочитан"}]
     out = []
     for name, entry in registry.items():
+        if entry.get("enabled") is False:
+            out.append({"name": name, "present": bool(shutil.which((entry.get("probe") or [""])[0])),
+                        "authorized": False, "enabled": False,
+                        "how": "не запускался: отключен в профиле", "why": "из реестра"})
+            continue
         cmd = entry.get("probe") or []
         how = " ".join(cmd)
         if not cmd or not shutil.which(cmd[0]):
@@ -487,13 +519,15 @@ def kategoriya_licenzii(syroe: str) -> str:
     if not s:
         return "neizvestnaya"
     up = s.upper()
-    if "AGPL" in up or "AFFERO" in up:
+    if (re.search(r"\bAGPL\b", up)
+            or re.search(r"\bAFFERO\s+(?:GPL|GENERAL PUBLIC LICENSE)\b", up)):
         return "kopolleft"
-    if "LGPL" in up or "LESSER GENERAL" in up:
+    if (re.search(r"\bLGPL\b", up)
+            or "LESSER GENERAL PUBLIC LICENSE" in up):
         return "lgpl"
-    if "MPL" in up or "MOZILLA PUBLIC" in up:
+    if re.search(r"\bMPL\b", up) or "MOZILLA PUBLIC LICENSE" in up:
         return "mpl"
-    if "GPL" in up or "GNU GENERAL" in up:
+    if re.search(r"\bGPL\b", up) or "GNU GENERAL PUBLIC LICENSE" in up:
         return "kopolleft"
     if _RAZRESHITELNYE_RE.search(up):
         return "permissive"
@@ -528,13 +562,19 @@ def deklarirovano_v_install() -> set[str]:
         return set()
     skleeno = re.sub(r"\\\n", " ", tekst)
     names: set[str] = set()
-    for m in re.finditer(r"\$PIP\s+install\s+(.+?)(?:2>|\|\||$)", skleeno, re.S | re.M):
+    pip = r'(?:\$PIP|"?\$THEMIZ_PYTHON"?\s+-m\s+pip)'
+    for m in re.finditer(pip + r"\s+install\s+(.+?)(?:2>|\|\||$)",
+                         skleeno, re.S | re.M):
         toks = m.group(1).split()
         for i, tok in enumerate(toks):
             if i and toks[i - 1] in ("-r", "--requirement"):
                 names |= paketi_iz_requirements(Path(ROOT) / tok)
             elif not tok.startswith("-") and re.fullmatch(r"[A-Za-z0-9_.-]+", tok):
                 names.add(tok.lower())
+    # Исторический MCP-сервер не вызывается кодом и не нужен локальному
+    # извлечению документов. Не переносить stale pin в новый runtime только
+    # потому, что он остался в ранее сгенерированном requirements.txt.
+    names.discard("markitdown-mcp")
     return names
 
 
@@ -686,7 +726,10 @@ def generit_requirements(sostav: list[dict]) -> str:
     for p in sostav:
         vers = f"=={p['версия']}" if p["версия"] != "НЕ УСТАНОВЛЕН" else ""
         lic = p["лицензия"] or "ЛИЦЕНЗИЯ НЕ ОПРЕДЕЛЕНА — СТОП, решение владельца"
-        linii.append(f"{p['dist']}{vers}  # {lic}")
+        dist = p["dist"]
+        if dist == "markitdown":
+            dist += "[docx,pdf,pptx,xls,xlsx]"
+        linii.append(f"{dist}{vers}  # {lic}")
     return "\n".join(linii) + "\n"
 
 
@@ -724,19 +767,45 @@ def generit_notice(sostav: list[dict]) -> str:
 def _teksty_licenzij(dist: str) -> list[tuple[str, str]]:
     """Файлы лицензий из dist-info установленного пакета: (имя файла, текст)."""
     out = []
+    seen = set()
     try:
         fajly = importlib_metadata.files(dist) or []
     except importlib_metadata.PackageNotFoundError:
         return out
     for f in fajly:
-        if not any(part.endswith(".dist-info") for part in f.parts):
+        parts = tuple(f.parts)
+        if (not parts or any(part in ("", ".", "..") for part in parts)
+                or not parts[0].endswith(".dist-info")):
             continue
-        if f.parts[-1].lower().startswith(("licen", "copying", "notice")):
-            try:
-                out.append(("/".join(f.parts),
-                            f.locate().read_text(encoding="utf-8", errors="replace").strip()))
-            except OSError:
+        basename = parts[-1].lower()
+        pod_licenziej = any(part.lower() in ("license", "licenses")
+                            for part in parts[1:-1])
+        if not (basename.startswith(("licen", "copying", "notice")) or pod_licenziej):
+            continue
+        try:
+            put = Path(f.locate())
+            baza = put
+            for _ in parts:
+                baza = baza.parent
+            dist_info = (baza / parts[0]).resolve(strict=True)
+            real = put.resolve(strict=True)
+            if not real.is_relative_to(dist_info):
                 continue
+            current = baza
+            if any((current := current / part).is_symlink() for part in parts):
+                continue
+            size = real.stat().st_size
+            if not real.is_file() or size <= 0 or size > 2 * 1024 * 1024 or real in seen:
+                continue
+            raw = real.read_bytes()
+            if len(raw) != size or b"\x00" in raw:
+                continue
+            tekst = raw.decode("utf-8", errors="replace").strip()
+            if tekst:
+                out.append(("/".join(parts), tekst))
+                seen.add(real)
+        except (OSError, RuntimeError):
+            continue
     return out
 
 
@@ -839,6 +908,7 @@ def collect(offline: bool = False, quick: bool = False) -> dict:
     checks += check_ocr(plat)
     checks.append(check_fonts(plat))
     checks += check_corpus()
+    checks.append(check_lynceuz())
     checks += check_net(offline)
     checks.append(check_selftests(quick))
     checks.append(check_humanizer())

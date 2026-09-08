@@ -1,27 +1,13 @@
 #!/usr/bin/env python3
-"""budget_preflight.py — проверка бюджета ПЕРЕД запуском дорогого трека.
+"""budget_preflight.py — совместимая точка входа перед запуском трека.
 
-Зачем. FULL-прогон (полный рой охотников, советы, reconciler) стоит на порядок
-дороже FAST и в разы дороже MICRO. Узнать о перерасходе ПОСЛЕ прогона (как это
-делает token_ledger на чекпойнтах) — значит уже сжечь деньги. Этот прибор
-считает наперед: хватит ли остатка лимита на трек, и если нет — FULL не стартует
-(код 3), а владелец решает, что делать. Дешевая страховка перед дорогой работой.
+Рабочая политика с 08.09.2026: доступ по подпискам, долларового гейта нет.
+Код 0 означает только отсутствие денежного запрета, а не наличие квоты.
+Остаток подписки из токенов не выводится; реальный отказ поставщика обрабатывает
+CLI-коннектор. Старый --limit принимается и явно игнорируется.
 
-Почему расход берется с диска, а не из самоотчета. Модель не знает, сколько уже
-потрачено этой сессией: поле `usage` субагента видит только последнюю итерацию и
-занижает расход в десятки раз (прецедент token_ledger). Поэтому уже-потраченное
-берем тем же прибором, что и чекпойнты — token_ledger.collect по session-JSONL с
-диска. Один источник правды на весь учет токенов.
-
-Оценка стоимости трека. TRACK_BUDGET из token_ledger задает типовой объем трека в
-токенах (измеренная база проекта). Перевод токен→доллар — по МЕДИАНЕ смешанного
-тарифа ЗАВЕРШЕННЫХ сессий проекта, не по текущей. Текущая сессия то читает кеш
-(дешево), то пишет его (дорого), и ее тариф гуляет 1.9→15 — оценка по ней
-невоспроизводима (R02: три прогона одного трека дали $374 / $685 / $3044). Медиана
-завершенных сессий устойчива к разовому выбросу и не меняется между прогонами без
-новой работы. Завершенных сессий мало → берем запасной тариф и ВСЛУХ помечаем
-оценку грубой. Три исхода — три кода: 0 хватает, 3 не хватает лимита, 4 расход
-этой сессии не измерен.
+Функции тарифного расчета ниже сохранены для анализа исторических журналов.
+При SUBSCRIPTION_ONLY они не вызываются из рабочего preflight.
 """
 from __future__ import annotations
 
@@ -66,13 +52,10 @@ EXIT_OK = 0
 EXIT_OVER = 3        # лимита не хватает на трек
 EXIT_UNMEASURED = 4  # расход этой сессии не измерен
 
-# Умолчание лимита — в ОДНОМ месте политики. Без --limit гейт не отключается («трек
-# всегда зеленый»), а стережет по этому потолку: дорогой трек без явного лимита-
-# разрешения не стартует при крупном уже-потраченном. Явный --limit его перебивает.
-# 02.09.2026, решение владельца: потолок поднят 500 -> 600. Причина замером, не на глаз:
-# прибор воспроизводимо меряет полный трек дела в $517,72, то есть трек честно дороже
-# заложенного, а не перерасходует. Откат - вернуть 500.0.
+# Историческая константа старого тарифного режима, не ограничение подписки.
+# Рабочий run() при SUBSCRIPTION_ONLY ее не использует.
 DEFAULT_LIMIT = 600.0
+CODEX_UNMEASURED_REASON = "Codex-подписка: USD и остаток квоты не измеряются"
 
 
 def track_estimate(track: str, blend_per_mtok: float) -> float:
@@ -136,6 +119,8 @@ def live_session_spend(cwd: str) -> tuple[float | None, str | None, str | None]:
     именно его деньги — «уже потрачено». Существующий пустой каталог → честный
     ноль. Нет каталога/пути либо журнал не разбирается → расход НЕИЗВЕСТЕН и
     причина названа."""
+    if token_ledger.active_provider() == "codex":
+        return None, CODEX_UNMEASURED_REASON, None
     try:
         sessions_dir = token_ledger.project_dir(cwd)
     except Exception as e:
@@ -210,6 +195,12 @@ def disk_blend(cwd: str, exclude_path: str | None) -> tuple[float, bool, str | N
 
 
 def run(track: str, limit: float | None, cwd: str) -> int:
+    if token_ledger.SUBSCRIPTION_ONLY:
+        ignored = "; --limit проигнорирован" if limit is not None else ""
+        print(f"budget_preflight: трек {track}; подписка — денежный гейт не применяется{ignored}. "
+              "Квота поставщика не измерена и не подтверждена: обычный запуск допустим, "
+              "но может получить rate-limit у поставщика.")
+        return EXIT_OK
     spent, spend_reason, live_path = live_session_spend(cwd)
     blend, coarse, coarse_reason = disk_blend(cwd, live_path)
     est = track_estimate(track, blend)
@@ -237,6 +228,15 @@ def run(track: str, limit: float | None, cwd: str) -> int:
 
 
 def selftest() -> int:
+    # Legacy арифметика и синтетические Claude-журналы явно не маскируют Codex.
+    from unittest.mock import patch
+    with patch.dict(os.environ):
+        os.environ.pop("CODEX_THREAD_ID", None)
+        os.environ.pop("CODEX_SESSION_ID", None)
+        return _selftest_claude()
+
+
+def _selftest_claude() -> int:
     # Решение — чистая функция, проверяется на синтетике без сети и без диска.
     d = DEFAULT_BLEND_PER_MTOK
     checks = [
@@ -325,11 +325,9 @@ def selftest() -> int:
     checks += [
         ("нет каталога сессий → расход не измерен с причиной",
          missing_spent is None and "каталог сессий не найден по пути" in (missing_reason or "")),
-        # Отказ «расход не измерен» — свой код 4, не 3: неизвестное и плохое различимы.
-        ("HOME без каталога → CLI код 4 «РАСХОД НЕ ИЗМЕРЕН», без «хватает»",
-         missing_cli.returncode == EXIT_UNMEASURED and "хватает" not in missing_output
-         and "РАСХОД НЕ ИЗМЕРЕН" in missing_output
-         and "каталог сессий не найден по пути" in missing_output),
+        ("подписка не превращает отсутствие старых журналов в денежный стоп",
+         missing_cli.returncode == EXIT_OK and "денежный гейт не применяется" in missing_output
+         and "Квота поставщика не измерена" in missing_output),
         ("пустой каталог сессий → честный ноль и код 0",
          empty_spent == 0.0 and empty_reason is None and empty_cli.returncode == 0),
         ("нечитаемый журнал → старый fail-closed сохранен",
@@ -405,10 +403,9 @@ def selftest() -> int:
         ("коды отказов различны", EXIT_OVER != EXIT_UNMEASURED),
     ]
 
-    # Без --limit гейт не отключается: умолчание политики стережет перерасход.
-    checks.append(("умолчание лимита гейтит перерасход",
+    checks.append(("историческая долларовая арифметика сохранена для явного анализа",
                    decide("FULL", DEFAULT_LIMIT, DEFAULT_LIMIT + 9999.0, d) == 3))
-    checks.append(("умолчание лимита пропускает свежий прогон",
+    checks.append(("свежий исторический расчет проходит",
                    decide("MICRO", DEFAULT_LIMIT, 0.0, 0.1) == 0))
 
     bad = [n for n, ok in checks if not ok]
@@ -427,7 +424,8 @@ def main() -> int:
                                  "(exit 3 не хватает лимита, exit 4 расход не измерен)")
     ap.add_argument("--track", choices=sorted(token_ledger.TRACK_BUDGET),
                     help="трек прогона: MICRO | FAST | FULL")
-    ap.add_argument("--limit", type=float, metavar="ДОЛЛАРЫ", help="потолок расхода в долларах")
+    ap.add_argument("--limit", type=float, metavar="LEGACY_USD",
+                    help="совместимость со старыми вызовами; при подписке игнорируется")
     ap.add_argument("--selftest", action="store_true", help="проверка без сети")
     a = ap.parse_args()
 

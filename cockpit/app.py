@@ -139,7 +139,7 @@ async def strazh(request, call_next):
     if mutating:
         if not _rate_ok(_rate_key(request)):
             _audit(request.method, path, client, "429")
-            return JSONResponse({"ok": False, "error": "слишком часто, подождите минуту"},
+            return JSONResponse({"ok": False, "error": "слишком часто, подожди минуту"},
                                 status_code=429)
         _audit(request.method, path, client, "ok")
     return await call_next(request)
@@ -640,7 +640,7 @@ q('#sdelat').onclick=async()=>{
  q('#itog').textContent='Отдал в работу. Напишу, когда будет готово.';
  try{await dai('/api/task',{method:'POST',headers:{'content-type':'application/json'},
    body:JSON.stringify({text:'Собрать документ по делу '+v})});}
- catch(e){q('#itog').textContent='Не отдалось. Откройте панель на компьютере.'}
+ catch(e){q('#itog').textContent='Не отдалось. Открой панель на компьютере.'}
 };
 </script></body></html>"""
 
@@ -870,10 +870,10 @@ def _start_run(prompt: str) -> bool:
                       ("session limit", "hit your", "usage limit", "rate limit", "лимит сесси"))
         if limited:
             push("agent", "Работа прервана: лимит сессии исчерпан. Шаги выполнены частично. "
-                          "После сброса лимита запустите дело снова — продолжу с готовых файлов.", femida)
+                          "После сброса лимита запусти дело снова — продолжу с готовых файлов.", femida)
         elif proc.returncode not in (0, None):
             push("agent", "Работа прервалась, и я не довела дело до конца. "
-                          "Запустите снова — продолжу с того, что уже готово.", femida)
+                          "Запусти снова — продолжу с того, что уже готово.", femida)
         else:
             push("agent", "Дело отработано.", femida)
 
@@ -895,7 +895,7 @@ def task(payload: dict) -> JSONResponse:
     )
     push("me", text)
     if not _start_run(prompt):
-        push("agent", "Я сейчас занята делом. Подождите, пожалуйста.", PEOPLE_BY_ID["femida"])
+        push("agent", "Я сейчас занята делом. Подожди, пожалуйста.", PEOPLE_BY_ID["femida"])
         return JSONResponse({"ok": False, "error": "Прогон уже идет"}, status_code=409)
     push("agent", "Приняла. Беру в работу.", PEOPLE_BY_ID["femida"])
     return JSONResponse({"ok": True})
@@ -967,7 +967,7 @@ def run() -> JSONResponse:
     )
     push("me", "Запустить полный прогон по входящим документам.")
     if not _start_run(prompt):
-        push("agent", "Я сейчас занята делом. Подождите, пожалуйста.", PEOPLE_BY_ID["femida"])
+        push("agent", "Я сейчас занята делом. Подожди, пожалуйста.", PEOPLE_BY_ID["femida"])
         return JSONResponse({"ok": False, "error": "Прогон уже идет"}, status_code=409)
     push("agent", "Приняла. Беру в работу.", PEOPLE_BY_ID["femida"])
     return JSONResponse({"ok": True})
@@ -988,7 +988,7 @@ def new_case(payload: dict) -> JSONResponse:
     )
     push("me", "Новое дело: " + data)
     if not _start_run(prompt):
-        push("agent", "Я сейчас занята делом. Подождите, пожалуйста.", PEOPLE_BY_ID["femida"])
+        push("agent", "Я сейчас занята делом. Подожди, пожалуйста.", PEOPLE_BY_ID["femida"])
         return JSONResponse({"ok": False, "error": "Прогон уже идет"}, status_code=409)
     push("agent", "Завожу новое дело.", PEOPLE_BY_ID["femida"])
     return JSONResponse({"ok": True})
@@ -1005,9 +1005,9 @@ def learn_redline(payload: dict) -> JSONResponse:
         return JSONResponse({"ok": False, "error": "файл вне дел"}, status_code=400)
     push("me", f"Изучи мои правки: {p.name}")
     if not _start_run(_redline_prompt(str(p))):
-        push("agent", "Я сейчас занята делом. Подождите, пожалуйста.", PEOPLE_BY_ID["femida"])
+        push("agent", "Я сейчас занята делом. Подожди, пожалуйста.", PEOPLE_BY_ID["femida"])
         return JSONResponse({"ok": False, "error": "Прогон уже идет"}, status_code=409)
-    push("agent", "Беру ваши правки на изучение. Сравню с моим черновиком.", PEOPLE_BY_ID["femida"])
+    push("agent", "Беру твои правки на изучение. Сравню с моим черновиком.", PEOPLE_BY_ID["femida"])
     return JSONResponse({"ok": True})
 
 

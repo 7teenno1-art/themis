@@ -44,6 +44,10 @@ markdown_extract.py — роутер извлечения текста (экон
 Флаги размера: --preview N (символов превью, 800), --max-chars N (лимит --inline).
 """
 import sys, os, argparse, hashlib, json, re
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from extraction_runtime import ensure_runtime  # noqa: E402
+if __name__ == "__main__":
+    ensure_runtime(entrypoint=__file__)
 import sreda  # noqa: E402,F401  переходный период имен переменных
 
 OFFICE = {"docx", "xlsx", "xls", "pptx", "ppt", "html", "htm", "csv", "json", "xml", "rtf", "epub", "odt"}

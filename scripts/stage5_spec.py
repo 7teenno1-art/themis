@@ -281,11 +281,13 @@ def check_pii():
     return fails
 
 
-# ── 2. Preflight бюджета ────────────────────────────────────────────────────
+# ── 2. Подписочный preflight ────────────────────────────────────────────────
 BUDGET_CONTRACT = """  scripts/budget_preflight.py
-    --track FAST|FULL [--limit ДОЛЛАРЫ]
-        код 0 — остатка лимита хватает на трек; код 3 — не хватает, FULL не стартует.
-        Расход берется прибором с диска (token_ledger), не самоотчетом.
+    --track FAST|FULL
+        Подписочный режим: долларового гейта нет, код 0 не доказывает остаток квоты.
+        Унаследованный --limit игнорируется с явным сообщением.
+        Ни отсутствие USD, ни размер старой сметы не запрещают запуск.
+        Реальные отказы квоты/авторизации обрабатывает CLI-коннектор.
     --selftest"""
 
 
@@ -294,20 +296,23 @@ def check_budget():
     if not exists(name):
         return missing(name, BUDGET_CONTRACT)
     fails = selftest_clean(name)
-    code, out, err = run([tool(name), "--track", "FULL", "--limit", "0.01"])
-    if code != 3:
-        fails.append((name, f"при заведомо малом лимите вернул {code}, ожидался 3 "
-                            f"(перерасход). {(out + err).strip()[-200:]}"))
-    code, out, err = run([tool(name), "--track", "FAST", "--limit", "100000"])
-    if code != 0:
-        fails.append((name, f"при заведомо большом лимите вернул {code}, ожидался 0"))
+    for track, limit in (("FULL", "0.01"), ("FAST", "100000")):
+        code, out, err = run([tool(name), "--track", track, "--limit", limit])
+        if code != 0 or "--limit проигнорирован" not in out:
+            fails.append((name, f"подписка заблокирована старым USD-лимитом {limit}: "
+                                f"код {code}, {(out + err).strip()[-200:]}"))
+        if "Квота поставщика не измерена и не подтверждена" not in out:
+            fails.append((name, "неизвестный остаток подписки не обозначен"))
     return fails
 
 
 # ── 3. Независимая сверка расхода ───────────────────────────────────────────
 AUDIT_CONTRACT = """  scripts/token_audit.py
-    --json    {"total": целое, "money": число} — СВОЙ путь подсчета, не вызов token_ledger
-    --compare код 1, если расходится с token_ledger больше допуска (по умолчанию 2%)
+    --json    Codex: {"total": целое, "money": null,
+                      "money_status": "not_applicable(subscription)"}
+              СВОЙ путь подсчета, не вызов token_ledger.
+    --compare Codex: точное совпадение токенов стабильного снимка дает код 0;
+              расхождение — 1; отсутствие/повреждение/смена снимка — 2.
     --selftest"""
 
 
@@ -328,6 +333,9 @@ def check_audit():
     for k in ("total", "money"):
         if k not in d:
             fails.append((name, f"--json без поля `{k}`"))
+    if d.get("provider") == "codex" and (d.get("money") is not None or
+            d.get("money_status") != "not_applicable(subscription)"):
+        fails.append((name, "USD подписки выдан за цену вместо not_applicable"))
     src = (SCRIPTS / name).read_text(encoding="utf-8", errors="ignore")
     if "token_ledger" in src and "--compare" not in src:
         fails.append((name, "считает через token_ledger — это не независимая сверка, "
@@ -401,7 +409,7 @@ def check_cadastre():
 
 CHECKS = (
     ("обезличивание fail-closed с обратимой картой", check_pii, PII_CONTRACT),
-    ("preflight бюджета перед FULL", check_budget, BUDGET_CONTRACT),
+    ("подписочный preflight перед FULL", check_budget, BUDGET_CONTRACT),
     ("независимая сверка расхода", check_audit, AUDIT_CONTRACT),
     ("superseded_by в логе уроков", check_lessons, LESSONS_CONTRACT),
     ("разбор правок по структуре", check_redline, REDLINE_CONTRACT),

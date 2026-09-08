@@ -304,7 +304,8 @@ def write_atomic(path: str, content: str) -> None:
 SKIP_CLASSES = {"document__edit", "document__insert", "notes", "full-text",
                  "document-page__notes"}
 CONTENT_CLASS = "document-page__content"
-FRAMED_TAGS = {"div", "p", "h1", "h2", "a", "ul", "li", "section"}
+FRAMED_TAGS = {"div", "p", "h1", "h2", "a", "ul", "li", "section",
+               "table", "thead", "tbody", "tr", "th", "td"}
 
 
 class ArticleHTMLParser(HTMLParser):
@@ -322,6 +323,13 @@ class ArticleHTMLParser(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.stack = [("root", False, False)]
         self.paragraphs = []
+        self._buf = []
+
+    def _flush(self):
+        text = "".join(self._buf).strip()
+        text = re.sub(r"[ \t]+", " ", text).replace("\xa0", " ")
+        if text:
+            self.paragraphs.append(text)
         self._buf = []
 
     @staticmethod
@@ -342,17 +350,26 @@ class ArticleHTMLParser(HTMLParser):
                 skip = True
         elif tag == "h1":
             skip = True
+        elif tag == "br" and cap and not skip:
+            self._buf.append("\n")
         if tag in FRAMED_TAGS:
             self.stack.append((tag, cap, skip))
 
+    def _flush(self):
+        text = "".join(self._buf).strip()
+        text = re.sub(r" +", " ", text).replace("\xa0", " ")
+        if text:
+            self.paragraphs.append(text)
+        self._buf = []
+
     def handle_endtag(self, tag):
-        if tag == "p" and self.stack[-1][1] and not self.stack[-1][2]:
-            text = "".join(self._buf).strip()
-            text = re.sub(r"[ \t]+", " ", text).replace("\xa0", " ")
-            if text:
-                self.paragraphs.append(text)
-            self._buf = []
-        if tag in FRAMED_TAGS and len(self.stack) > 1 and self.stack[-1][0] == tag:
+        framed = tag in FRAMED_TAGS and len(self.stack) > 1 and self.stack[-1][0] == tag
+        if framed and self.stack[-1][1] and not self.stack[-1][2]:
+            if tag in {"td", "th"}:
+                self._buf.append("\t")
+            elif tag in {"p", "li", "div", "tr"}:
+                self._flush()
+        if framed:
             self.stack.pop()
 
     def handle_data(self, data):
@@ -404,7 +421,44 @@ def redaction_from_article(doc_id: int, art_hash: str) -> str | None:
 
 
 TOC_ENTRY_TMPL = r'href="/document/cons_doc_LAW_{doc_id}/([a-f0-9]+)/">([^<]+)</a>'
-ARTICLE_RE = re.compile(r"^Статья\s+([\d.]+(?:-\d+)?)\.\s*(.*)$")
+ARTICLE_RE = re.compile(
+    r"^Статья\s+(\d+(?:\.\d+)*(?:-\d+)*)(?:\.\s*|(?=,\s*статья\b))(.*)$")
+
+
+def article_label(num: str, title: str) -> str:
+    """Восстанавливает label ToC без ложной точки внутри групповых статей."""
+    return f"Статья {num}{title}" if title.startswith(",") else f"Статья {num}. {title}"
+
+
+def _heading_key(value: str) -> str:
+    value = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", value))).strip()
+    return re.sub(r"\s+([,.;:])", r"\1", value).lower()
+
+
+def _article_h1_matches(value: str, expected: str) -> bool:
+    actual = _heading_key(value)
+    start = actual.find("статья ")
+    return start >= 0 and actual[start:] == _heading_key(expected)
+
+
+def _canonical_doc_id(page: str) -> str | None:
+    """Читает canonical независимо от порядка href/rel и типа кавычек."""
+    class CanonicalParser(HTMLParser):
+        doc_id = None
+
+        def handle_starttag(self, tag, attrs):
+            if tag.lower() != "link":
+                return
+            values = {key.lower(): value or "" for key, value in attrs}
+            if "canonical" not in values.get("rel", "").lower().split():
+                return
+            match = re.search(r"cons_doc_LAW_(\d+)", values.get("href", ""), re.I)
+            if match:
+                self.doc_id = match.group(1)
+
+    parser = CanonicalParser()
+    parser.feed(page)
+    return parser.doc_id
 
 
 def fetch_toc(doc_id: int) -> tuple[dict, list[tuple[str, str, str]]]:
@@ -467,40 +521,38 @@ def build_kodeks_body(doc_id: int, entries: list, doc_id_str: str) -> tuple[str,
             lines.append(f"\n## {title}\n")
             continue
         url = f"https://www.consultant.ru/document/cons_doc_LAW_{doc_id}/{h}/"
+        label = article_label(num, title)
         cache_key = f"art_{doc_id_str}_{h}.html"
         raw = http_get(url, cache_key)
         if raw is None:
             fail += 1
-            missing.append(f"Статья {num}. {title} — не удалось получить страницу; {url}")
-            lines.append(f"\n### Статья {num}. {title}\n\n_не удалось получить со "
+            missing.append(f"{label} — не удалось получить страницу; {url}")
+            lines.append(f"\n### {label}\n\n_не удалось получить со "
                           f"страницы {url} — требует ручной проверки._\n")
             continue
         # Страница адресуется хешем: сдвинулся хеш в оглавлении или ответил кеш
         # чужой страницы — и под заголовком «Статья N» ляжет чужой текст, а прогон
         # доложит «чист». Сверяем номер статьи с <h1> самой страницы.
         page = raw.decode("utf-8", errors="ignore")
-        h1 = re.search(r"<h1>(.*?)</h1>", page, re.S)
-        if h1:
-            # Номер без «хвостовой» точки: «Статья 1.» дает 1, «Статья 333.19.» — 333.19
-            got = re.search(r"Стать[яи]\s+(\d+(?:\.\d+)*(?:-\d+)?)",
-                            re.sub(r"<[^>]+>", " ", h1.group(1)))
-            if got and got.group(1) != num.rstrip("."):
-                fail += 1
-                missing.append(f"Статья {num}. {title} — страница озаглавлена "
-                               f"«Статья {got.group(1)}»; {url}")
-                lines.append(f"\n### Статья {num}. {title}\n\n_НЕ СОВПАЛ НОМЕР: страница "
-                             f"{url} озаглавлена «Статья {got.group(1)}». Текст не внесен, "
-                             f"требует ручной проверки._\n")
-                continue
+        h1 = re.search(r"<h1[^>]*>(.*?)</h1>", page, re.S | re.I)
+        canonical = _canonical_doc_id(page)
+        if (not h1 or not _article_h1_matches(h1.group(1), label)
+                or canonical and canonical != str(doc_id)):
+            got = _heading_key(h1.group(1)) if h1 else "h1 отсутствует"
+            fail += 1
+            missing.append(f"{label} — заголовок или документ страницы не совпал: {got}; {url}")
+            lines.append(f"\n### {label}\n\n_НЕ СОВПАЛ ЗАГОЛОВОК ИЛИ ДОКУМЕНТ: "
+                         f"{url}. Текст не внесен, требует ручной проверки._\n")
+            continue
         body = extract_article_text(raw)
         if not body:
             fail += 1
-            missing.append(f"Статья {num}. {title} — текст не распознан; {url}")
-            lines.append(f"\n### Статья {num}. {title}\n\n_текст не распознан на "
+            missing.append(f"{label} — текст не распознан; {url}")
+            lines.append(f"\n### {label}\n\n_текст не распознан на "
                           f"странице {url} — требует ручной проверки._\n")
             continue
         ok += 1
-        lines.append(f"\n### Статья {num}. {title}\n\n{body}\n")
+        lines.append(f"\n### {label}\n\n{body}\n")
     return "".join(lines), ok, fail, missing
 
 
@@ -779,6 +831,13 @@ class PlenumTextParser(HTMLParser):
         self.paragraphs = []
         self._buf = []
 
+    def _flush(self):
+        text = "".join(self._buf).strip()
+        text = re.sub(r"[ \t]+", " ", text).replace("\xa0", " ")
+        if text:
+            self.paragraphs.append(text)
+        self._buf = []
+
     @staticmethod
     def _attr(attrs, name):
         for k, v in attrs:
@@ -796,16 +855,14 @@ class PlenumTextParser(HTMLParser):
                 cap = True
             if set(self._attr(attrs, "class").split()) & self.SKIP_CLASSES:
                 skip = True
+        if tag == "br" and cap and not skip:
+            self._buf.append("\n")
         if tag in self.FRAMED_TAGS:
             self.stack.append((tag, cap, skip))
 
     def handle_endtag(self, tag):
-        if tag == "p" and self.stack[-1][1] and not self.stack[-1][2]:
-            text = "".join(self._buf).strip()
-            text = re.sub(r"[ \t]+", " ", text).replace("\xa0", " ")
-            if text:
-                self.paragraphs.append(text)
-            self._buf = []
+        if tag in {"p", "div", "li", "td", "th", "tr"} and self.stack[-1][1] and not self.stack[-1][2]:
+            self._flush()
         if tag in self.FRAMED_TAGS and len(self.stack) > 1 and self.stack[-1][0] == tag:
             self.stack.pop()
 

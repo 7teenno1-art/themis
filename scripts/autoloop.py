@@ -10,8 +10,8 @@
 ИНВАРИАНТЫ (нарушен любой — цикл не стартует, код 2):
   · generator ≠ verifier — писавший код не выносит вердикт; пасс держит КОД ВОЗВРАТА
     прибора, мнение модели вердиктом не считается;
-  · четыре LoopGuard или старта нет — потолок итераций, бюджет токенов, потолок
-    времени, детект застревания по отпечатку вердикта гейта;
+  · три LoopGuard или старта нет — потолок итераций, потолок времени, детект
+    застревания по отпечатку вердикта гейта; подписочная квота не подменяется USD;
   · изоляция — параллельные роли работают в отдельных рабочих копиях (git worktree);
   · дайджест вверх, без бокового обмена — роль видит задание и вердикт гейта,
     но НИКОГДА вывод соседней роли;
@@ -50,19 +50,20 @@ STATE_DIR = os.path.join(ROOT, ".autoloop")
 # необратимо трогает данные дел и живет в knowledge/OWNER-TODO.md — цикл ее
 # не исполняет, заморозка cases/ отпечатком это дополнительно сторожит.
 AUTONOMOUS_STAGES = {"1", "2", "5", "9"}
-REQUIRED_GUARDS = ("max_iterations", "max_money", "wall_clock_seconds", "no_progress_limit")
+# Рабочий профиль Фемиды — подписочный. USD из legacy Claude ledger не является
+# ограничителем цикла; квота подписки в этот прибор не подменяется неизвестной цифрой.
+REQUIRED_GUARDS = ("max_iterations", "wall_clock_seconds", "no_progress_limit")
 GENERATOR_KINDS = {"generator", "builder"}
 REVIEWER_KINDS = {"reviewer", "critic"}
-# token_ledger читает session-JSONL Claude Code — расход ролей на харнессе он видит.
-# Роли на иных CLI ведут журналы своих форматов, и прибор их не читает. Слепоту
-# учета нельзя молчать: цифра бюджета тогда покрывает одну сторону из нескольких и
-# подается как полная — на нее смотрят и проезжают потолок. Имена таких CLI в код
-# не зашиты: измеряемый харнесс — из реестра, все прочее считается неизмеряемым.
+# Учет внешних CLI консервативно считается неполным: даже при наличии Codex events
+# конкретная роль не обязана входить в текущий root-ledger без отдельного доказательства.
+# Это предупреждение о видимости токенов, не USD-лимит: остаток подписочной квоты
+# прибор не подтверждает и свободным не объявляет. Имена CLI не зашиты в код.
 MEASURED_HARNESS = {"claude"}
 
 
 def _unmetered_clis(roles):
-    """CLI ролей, чей расход token_ledger не видит (все, кроме claude)."""
+    """CLI ролей, чье попадание в текущий root-ledger не доказано."""
     seen = []
     for r in roles:
         argv = r.get("argv") if isinstance(r, dict) else None
@@ -209,7 +210,7 @@ def env_fingerprint():
 
 
 def spent_money(root=ROOT):
-    """Реальный расход с диска прибором token_ledger, а не самоотчетом модели."""
+    """Legacy helper для старых billing-gates; подписочный loop его не вызывает."""
     code, out, _ = run([sys.executable, os.path.join(root, "scripts", "token_ledger.py"),
                         "--json"], cwd=root, timeout=300)
     if code != 0:
@@ -238,7 +239,7 @@ def validate(cfg):
 
     guards = cfg.get("guards")
     if not isinstance(guards, dict):
-        bad.append("нет блока guards — четыре сторожа обязательны")
+        bad.append("нет блока guards — три сторожа обязательны")
         guards = {}
     for g in REQUIRED_GUARDS:
         v = guards.get(g)
@@ -465,10 +466,11 @@ def write_report(cfg, runlog, stop_reason, root=ROOT):
     unmetered = _unmetered_clis(cfg.get("roles", []))
     if unmetered:
         lines += ["", "## Учет расхода неполный", "",
-                  f"Роли на CLI {', '.join(unmetered)} прибором `token_ledger` не "
-                  f"измеряются: расход по ним не виден, цифра бюджета покрывает только "
-                  f"харнесс. Часть картины нельзя принимать за целое — досчитать расход "
-                  f"этих ролей по их собственным журналам руками."]
+                  f"Роли на CLI {', '.join(unmetered)} не подтверждены в текущем "
+                  f"root-ledger: токены по ним могут быть не видны. Остаток "
+                  f"подписочной квоты этим не подтверждается и не является USD-лимитом; "
+                  f"часть картины нельзя принимать за целое — проверить источники "
+                  f"этих ролей отдельно."]
     last = runlog[-1] if runlog else None
     if last and last["fails"]:
         lines += ["", "## Чем красен последний гейт", ""]
@@ -523,23 +525,19 @@ def loop(cfg, root=ROOT, dry=False):
     gate_argv = [x.replace("{python}", sys.executable) for x in cfg["gate"]]
     cases_fp = tree_fingerprint(os.path.join(root, "cases"))
     env_fp = env_fingerprint()
-    # База расхода fail-closed: не `or 0.0`. Молчащий прибор давал бы базу 0, и
-    # первый же успешный замер объявлялся тратой цикла (ложное «бюджет исчерпан»).
-    # None здесь — «база не измерена»; разница считается ниже, и там же fail-closed.
-    money_start = spent_money(root)
     started = time.time()
     runlog, fails, last_fp, stale = [], [], None, 0
     stop = "потолок итераций"
 
     journal({"event": "start", "task": cfg["task"], "stage": cfg["stage"],
-             "guards": guards, "cases_fp": cases_fp, "env_fp": env_fp,
-             "money_start": money_start}, root)
+             "guards": guards, "cases_fp": cases_fp, "env_fp": env_fp}, root)
 
     unmetered = _unmetered_clis(cfg["roles"])
     if unmetered:
-        note = ("расход не измеряется прибором token_ledger для CLI: "
-                + ", ".join(unmetered) + " — учет неполный, цифра бюджета покрывает "
-                "только харнесс; чужие журналы прибор не читает")
+        note = ("попадание токенов в текущий root-ledger не подтверждено для CLI: "
+                + ", ".join(unmetered) + " — учет неполный, остаток подписочной "
+                "квоты не подтвержден и USD-лимитом не является; источники ролей "
+                "прибор не читает")
         journal({"event": "accounting_blind", "unmetered": unmetered, "note": note}, root)
         print(f"⚠ учет расхода неполный: {note}")
 
@@ -687,30 +685,6 @@ def loop(cfg, root=ROOT, dry=False):
             break
 
         # ── сторожа продолжения: только когда гейт красный ──
-        # Деньги — не та ось, где догадка допустима: прибор молчит или врет — стоп.
-        # Раньше проверка была `if spent is not None …` и молча выключалась на мертвом
-        # token_ledger; при потолке $0.01 цикл домолачивал до потолка итераций
-        # (владельцу это стоило $299 при потолке $60, 20.08.2026). Неразобранный
-        # расход обязан быть стопом, как неразобранный вердикт гейта.
-        spent = spent_money(root)
-        if spent is None:
-            stop = ("РАСХОД НЕ ИЗМЕРЕН: прибор token_ledger недоступен или вернул мусор — "
-                    "бюджет не сторожится. Неразобранный расход есть стоп: разобрать "
-                    "расход руками и перезапустить")
-            break
-        if money_start is None:
-            # База не измерилась на старте, а замер сейчас удался — разницу считать
-            # НЕ ОТ ЧЕГО. Первый успешный замер не есть трата цикла: fail-closed так
-            # же, как неизмеримый замер выше. Иначе цифру всего расхода объявили бы
-            # тратой одной итерации и остановили прогон ложным «бюджет исчерпан».
-            stop = ("БАЗА РАСХОДА НЕ ИЗМЕРЕНА НА СТАРТЕ: прибор token_ledger тогда "
-                    "молчал, а теперь ответил — разницу считать не от чего, первый "
-                    "успешный замер тратой цикла не считается. Разобрать расход руками")
-            break
-        if (spent - money_start) > float(guards["max_money"]):
-            stop = (f"бюджет исчерпан: потрачено ${spent - money_start:.2f} при потолке "
-                    f"${float(guards['max_money']):.2f}")
-            break
         if time.time() - started > float(guards["wall_clock_seconds"]):
             stop = f"потолок времени: {guards['wall_clock_seconds']} с"
             break
@@ -736,7 +710,7 @@ def selftest():
     import tempfile
 
     base = {"task": "проба", "stage": "5",
-            "guards": {"max_iterations": 3, "max_money": 1.0, "wall_clock_seconds": 60,
+            "guards": {"max_iterations": 3, "wall_clock_seconds": 60,
                        "no_progress_limit": 2, "stop_when": "gate_green"},
             "roles": [{"name": "a", "kind": "generator", "argv": ["true"]},
                       {"name": "b", "kind": "reviewer", "argv": ["true"]}],
@@ -936,7 +910,7 @@ def selftest():
     code, out, _ = run(["bash", "-c", "read -r x && echo ПОЛУЧИЛ:$x || echo STDIN-ЗАКРЫТ"],
                        cwd=ROOT, timeout=30)
     assert "STDIN-ЗАКРЫТ" in out, f"роль дотянулась до stdin владельца: {out!r}"
-    print("selftest: четыре сторожа, generator≠verifier, рельсы этапов, запрет установки, "
+    print("selftest: три сторожа, generator≠verifier, рельсы этапов, запрет установки, "
           "изоляция, ветка+мерж worktree-ролей, одновременность волны, дайджест вверх, заморозка cases/, детект спина — ок")
     return 0
 
@@ -977,7 +951,7 @@ def main():
 
     print(f"ЦИКЛ · {cfg['task']} · этап {cfg['stage']} · "
           f"потолок {cfg['guards']['max_iterations']} итераций, "
-          f"${cfg['guards']['max_money']}, {cfg['guards']['wall_clock_seconds']} с")
+          f"{cfg['guards']['wall_clock_seconds']} с")
     runlog, stop, report = loop(cfg, ROOT, a.dry)
     # Успех — только «цель достигнута». Зеленый гейт, снятый сторожем целостности
     # (тронуты дела, установлен пакет), успехом не считается: последняя итерация

@@ -40,6 +40,7 @@ import argparse
 import glob
 import html
 import io
+import json
 import os
 import re
 import subprocess
@@ -471,6 +472,30 @@ def _pdf_text(blob: bytes) -> str:
     return re.sub(r"[^A-Za-zА-Яа-яЕе0-9_.:/@+№()\"'«»\-\s]", " ", text)
 
 
+def _json_value_text(text: str) -> str:
+    """Значения JSON без escape-кодов; неразобранный JSON остается текстом."""
+    try:
+        # Повторные ключи допустимы у JSON-декодера: dict отбросил бы ранние
+        # значения, включая персональные данные. Проверяем каждую пару.
+        stack = [json.loads(text, object_pairs_hook=list)]
+    except (ValueError, RecursionError):
+        return text
+    parts = []
+    while stack:
+        value = stack.pop()
+        if isinstance(value, str):
+            parts.append(value)
+        elif isinstance(value, dict):
+            stack.extend(reversed(value.items()))
+        elif isinstance(value, (list, tuple)):
+            stack.extend(reversed(value))
+        elif value is not None:
+            parts.append(str(value))
+    # ponytail: NUL между строками изолирует текущие regex; при правилах,
+    # пересекающих и перевод строки, и NUL, значения надо сканировать раздельно.
+    return "\n\x00\n".join(parts)
+
+
 def _visible_blob_text(path: str, blob: bytes) -> str:
     zipped = _office_xml_text(blob)
     if zipped:
@@ -478,7 +503,8 @@ def _visible_blob_text(path: str, blob: bytes) -> str:
     low = path.lower()
     if low.endswith(".pdf"):
         return _pdf_text(blob)
-    return blob.decode("utf-8", "replace")
+    text = blob.decode("utf-8", "replace")
+    return _json_value_text(text) if low.endswith(".json") else text
 
 
 def _scan_file_text(path: str, blob: bytes, pat: re.Pattern | None) -> list[str]:
@@ -959,6 +985,18 @@ def selftest() -> int:
 
     dirty_docx = _office_xml_text(_docx_bytes("По делу familiya-ab прошу"))
     clean_docx = _office_xml_text(_docx_bytes("Ходатайство об истребовании"))
+    birthdate = "Дата рождения: 14.03.1985 согласно анкете."
+    snils_threshold = (
+        "СНИЛС: 9 цифр номера + контрольное. "
+        "Ниже 001-001-998 контроля нет по закону."
+    )
+    passport = "Паспорт серия 9203 № 456789 выдан отделом."
+    json_name_key = json.dumps({"familiya-ab": "safe"}).encode()
+    json_snils_number = json.dumps({"snils": int("123456789" + "00")}).encode()
+    huge_number_json = b'{"number":' + b"9" * 5_000 + b"}"
+
+    def _json_blob(text: str) -> bytes:
+        return json.dumps({"value": text}, ensure_ascii=True).encode()
 
     def _prepush_content_probe() -> int:
         global ROOT
@@ -1066,6 +1104,26 @@ def selftest() -> int:
          not _is_test_fixture_code("knowledge/x.md")),
         ("тот же литерал в .md по-прежнему ловится scan_pii (утечка не потеряна)",
          len(scan_pii("СНИЛС 123-456-789 64", "note.md")) >= 1),
+        ("дата рождения ловится в тексте и JSON",
+         len(_scan_file_text("note.md", birthdate.encode(), None)) == 1
+         and len(_scan_file_text("note.json", _json_blob(birthdate), None)) == 1
+         and _scan_file_text(
+             "note.json",
+             json.dumps(["Дата рождения:", "14.03.1985"], ensure_ascii=True).encode(),
+             None) == []
+         and len(_scan_file_text("note.json", json_name_key, pat)) == 1),
+        ("порог СНИЛС молчит в тексте и JSON",
+         _scan_file_text("note.md", snils_threshold.encode(), None) == []
+         and _scan_file_text("note.json", _json_blob(snils_threshold), None) == []
+         and len(_scan_file_text("note.json", json_snils_number, None)) >= 1),
+        ("паспорт дает одинаковое число находок в тексте и JSON",
+         len(_scan_file_text("note.md", passport.encode(), None)) > 0
+         and len(_scan_file_text("note.json", _json_blob(passport), None))
+         == len(_scan_file_text("note.md", passport.encode(), None))),
+        ("испорченный JSON проверяется как текст",
+         len(_scan_file_text("broken.json", ('{"value": "' + birthdate).encode(),
+                             None)) == 1
+         and _scan_file_text("broken.json", huge_number_json, None) == []),
         # .docx это zip: фамилия внутри word/document.xml видна, чистый — молчит.
         ("фамилия внутри .docx (zip) распакована и поймана",
          len(scan_text(dirty_docx, pat, "hod.docx")) >= 1),

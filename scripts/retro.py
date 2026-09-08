@@ -179,8 +179,39 @@ def session_path(session: str | None, cwd: str) -> tuple[str | None, str | None]
     return path, None
 
 
+def money_summary(rep: dict) -> tuple[float | None, str]:
+    """Не подменять отсутствующую цену подписки ложным $0."""
+    money = rep.get("money")
+    if isinstance(money, (int, float)):
+        return round(money, 2), rep.get("money_status") or "measured"
+    return None, rep.get("money_status") or "unknown"
+
+
 def collect_retro(session: str | None = None, track: str | None = None) -> dict:
-    from token_ledger import collect, tokens
+    from token_ledger import (CorruptCodexSession, NoCodexSessions, active_provider,
+                              codex_report, collect, tokens)
+
+    if active_provider() == "codex":
+        if session:
+            return {"ошибка": "Codex не поддерживает путь session.jsonl; "
+                    "разбирается только активная сессия по cwd", "итого": 0}
+        try:
+            rep = codex_report(os.getcwd())
+        except (NoCodexSessions, CorruptCodexSession) as exc:
+            return {"ошибка": f"Codex-сессия не подтверждена: {exc}", "итого": 0}
+        return {
+            "сессия": rep["session"],
+            "итого": rep["tokens"],
+            "деньги": None,
+            "деньги статус": rep["money_status"],
+            "контекст статус": rep.get("context_status", "unknown"),
+            "роль статус": rep.get("role_status", "unknown"),
+            "статьи": None,
+            "шаги": [],
+            "агенты": [],
+            "диагноз": ["Codex events дают cumulative total без разреза по шагам, ролям и контексту."],
+            "урок записан сегодня": lesson_written(),
+        }
 
     path, error = session_path(session, os.getcwd())
     if error:
@@ -194,10 +225,12 @@ def collect_retro(session: str | None = None, track: str | None = None) -> dict:
                    key=lambda kv: -kv[1])
     agents = sorted(((k, tokens(v)) for k, v in rep["by_agent"].items()),
                     key=lambda kv: -kv[1])[:5]
+    money, money_status = money_summary(rep)
     return {
         "сессия": os.path.basename(path),
         "итого": total,
-        "деньги": round(rep.get("money", 0.0), 2),
+        "деньги": money,
+        "деньги статус": money_status,
         "статьи": {k: rep["total"].get(k, 0) for k in ("in", "out", "cw", "cr")},
         "шаги": [{"шаг": k, "токенов": v, "доля": round(share(v, total), 1)}
                  for k, v in steps if v],
@@ -239,10 +272,15 @@ def main() -> int:
         print(json.dumps(r, ensure_ascii=False, indent=2))
     else:
         print(f"РАЗБОР РАБОТЫ · сессия {r['сессия']}")
-        print(f"итого {r['итого']:,} токенов ≈ ${r['деньги']}".replace(",", " "))
+        money = (f"≈ ${r['деньги']:.2f}" if r["деньги"] is not None
+                 else f"деньги N/A ({r['деньги статус']})")
+        print(f"итого {r['итого']:,} токенов {money}".replace(",", " "))
         st = r["статьи"]
-        print(f"  вход {st['in']:,} · выход {st['out']:,} · "
-              f"запись кеша {st['cw']:,} · чтение кеша {st['cr']:,}".replace(",", " "))
+        if st is None:
+            print("  разрез input/output/cache: ДАННЫХ НЕТ в Codex events")
+        else:
+            print(f"  вход {st['in']:,} · выход {st['out']:,} · "
+                  f"запись кеша {st['cw']:,} · чтение кеша {st['cr']:,}".replace(",", " "))
         if len(r["шаги"]) > 1:
             print("\nкуда ушло:")
             for s in r["шаги"][:6]:
@@ -265,6 +303,15 @@ def main() -> int:
 
 
 def selftest() -> int:
+    # Исторические фикстуры явно Claude; окружение текущего Codex им не источник.
+    from unittest.mock import patch
+    with patch.dict(os.environ):
+        os.environ.pop("CODEX_THREAD_ID", None)
+        os.environ.pop("CODEX_SESSION_ID", None)
+        return _selftest_claude()
+
+
+def _selftest_claude() -> int:
     import shutil
     import subprocess
     import tempfile
@@ -322,6 +369,9 @@ def selftest() -> int:
         ("предел соблюдается", len(headline("слово " * 40)) <= 80),
         ("урок без разделителей все равно дает заголовок",
          headline("сплошнойтекстбезпробеловидлиннее" * 4) != ""),
+        ("подписка хранит цену как N/A, не как ложный ноль",
+         money_summary({"money": None, "money_status": "not_applicable(subscription)"})
+         == (None, "not_applicable(subscription)")),
         # Диагноз обязан НАЗЫВАТЬ причину, а не констатировать сумму.
         ("длина контекста опознана как причина расхода",
          any("ДЛИНУ КОНТЕКСТА" in d for d in diagnose(long_ctx))),

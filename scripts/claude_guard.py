@@ -602,7 +602,7 @@ def _harness_files(root: str = PROJECT_ROOT) -> set:
     )
     for base, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs
-                   if d not in {".git", "__pycache__", "node_modules", "cases",
+                   if d not in {".git", ".venv", "__pycache__", "node_modules", "cases",
                                 "queue", "graphify-out", ".entire", ".helioz"}]
         for name in files:
             if not name.endswith((".md", ".sh", ".py", ".js", ".json")):
@@ -1198,11 +1198,11 @@ def _drafts_lock_gate(p: str) -> None:
         age_min = 0
     if age_min > DRAFTS_LOCK_STALE_MIN:
         print(f"⚠ Фемида: лок черновиков протух ({int(age_min)} мин) — держал {who}. "
-              f"Если это ваш незакрытый лок, снять: rm {owner}", file=sys.stderr)
+              f"Если это твой незакрытый лок, снять: rm {owner}", file=sys.stderr)
         return
     block(
         f"БЛОК: каталог черновиков заперт — работает {who}. Две руки в один каталог "
-        f"25.08 стоили выброшенной работы. Дождаться освобождения; если лок ваш и "
+        f"25.08 стоили выброшенной работы. Дождаться освобождения; если лок твой и "
         f"работа окончена, снять: rm {owner}"
     )
 

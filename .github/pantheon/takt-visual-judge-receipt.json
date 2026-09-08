@@ -1,19 +1,18 @@
 {
   "schema_version": 1,
   "kind": "pantheon-visual-judge",
-  "receipt_id": "pantheon-takt-judge-themiz-2026-09-03",
-  "checked_at": "2026-09-03T17:54:40Z",
-  "runtime": "claude",
-  "tool": "read_image",
-  "route_id": "claude:read_image:frontier",
+  "receipt_id": "themiz-takt-gold-judge-2026-09-08",
+  "checked_at": "2026-09-08T18:51:27Z",
+  "runtime": "codex",
+  "tool": "view_image",
+  "route_id": "codex:view_image:gpt-6-astra",
   "model": {
-    "id": "claude-opus-5",
-    "revision": "claude-opus-5[1m]",
-    "tier": "frontier"
+    "id": "gpt-6-astra",
+    "revision": "not-exposed"
   },
-  "quality": "highest",
   "verdict": "pass",
-  "human_reviewed": true,
+  "human_reviewed": false,
+  "ai_reviewed": true,
   "references": [
     {
       "role": "style-anchor",
@@ -22,57 +21,80 @@
     {
       "role": "column-reference",
       "sha256": "9d32edd56ac55c4dd6d0425a28a2ac35035e9ab09073fc8ce0c1414b2edfb1bd"
+    },
+    {
+      "role": "character-sheet",
+      "sha256": "711148b3fda406aa7d93cf85f4406fd23496dda8e6c50e3d3eb31267dc60b871"
+    },
+    {
+      "role": "prop-sheet",
+      "sha256": "21062daf12fa5b0ad5086c0d61e473754600290a444546ac4b13b929de64ddfc"
     }
   ],
   "outputs": [
     {
       "role": "takt-en",
       "path": "docs/assets/pantheon/takt-en.png",
-      "sha256": "5adb345e99492f0f5a1938ece503ce1709b445e1dfb5b1b98834fa46033390c3",
+      "sha256": "50c3833b7fd39fa4290a60073f24473b79bbc9cf76e6747706ae808e18069d4a",
       "checks": {
         "column-present": 5,
         "ivory-light": 5,
         "marble-material": 5,
-        "deity-symbol": 5,
-        "blue-gold-semantics": 5,
+        "deity-symbol": 4,
+        "blue-gold-semantics": 4,
         "geometry-clean": 5,
         "diagram-text-exact": 5,
-        "no-collision-with-copy": 5,
+        "no-collision-with-copy": 4,
         "series-coherence": 5
-      }
+      },
+      "additional_checks": {
+        "gold-within-incised-lettering": 4,
+        "sequential-seven-stage-flow": 5
+      },
+      "notes": "Exact language labels and arrows checked independently against the stage manifest. Top row 1–4 left-to-right, lower row 5–7 right-to-left; no shortcut or loop."
     },
     {
       "role": "takt-ru",
       "path": "docs/assets/pantheon/takt-ru.png",
-      "sha256": "3c95f186d9acc59690cf63bd5d2e44934bcad0996061e1c73f498af24c749a19",
+      "sha256": "2d1200b3d07bd099799eb51235a68da1deeb49094ab592ceb0d6d6a908c9a228",
       "checks": {
         "column-present": 5,
         "ivory-light": 5,
         "marble-material": 5,
-        "deity-symbol": 5,
-        "blue-gold-semantics": 5,
+        "deity-symbol": 4,
+        "blue-gold-semantics": 4,
         "geometry-clean": 5,
         "diagram-text-exact": 5,
-        "no-collision-with-copy": 5,
+        "no-collision-with-copy": 4,
         "series-coherence": 5
-      }
+      },
+      "additional_checks": {
+        "gold-within-incised-lettering": 4,
+        "sequential-seven-stage-flow": 5
+      },
+      "notes": "Exact language labels and arrows checked independently against the stage manifest. Top row 1–4 left-to-right, lower row 5–7 right-to-left; no shortcut or loop."
     },
     {
       "role": "takt-zh",
       "path": "docs/assets/pantheon/takt-zh.png",
-      "sha256": "75b3a6f1a8d7c2a09c1e6632cb81013ad5277f180ac960fa82b92fce958124db",
+      "sha256": "20c9bca90698c1159d19359b03cf2d8d7b30a24c3ee4d31606091a379f28265b",
       "checks": {
         "column-present": 5,
         "ivory-light": 5,
         "marble-material": 5,
-        "deity-symbol": 5,
-        "blue-gold-semantics": 5,
+        "deity-symbol": 4,
+        "blue-gold-semantics": 4,
         "geometry-clean": 5,
         "diagram-text-exact": 5,
-        "no-collision-with-copy": 5,
+        "no-collision-with-copy": 4,
         "series-coherence": 5
-      }
+      },
+      "additional_checks": {
+        "gold-within-incised-lettering": 4,
+        "sequential-seven-stage-flow": 5
+      },
+      "notes": "Exact language labels and arrows checked independently against the stage manifest. Top row 1–4 left-to-right, lower row 5–7 right-to-left; no shortcut or loop."
     }
   ],
-  "notes": "каждый кадр открыт глазами: колонна на месте, Фемида с повязкой, весами в равновесии и опущенным мечом, фон теплый ivory, голубая нить ведет поток, золото только у папки доверителя, семь подписей совпадают с visuals.stages своего языка"
+  "notes": "Independent gpt-6-astra visual review: 42/45 for each language, plus root review. Slightly bright blue arrows, tight left-column margin and perspective offset between scale pans remain minor visual caveats. Actual 1672x941 PNG dimensions were measured; no upscaling. Native-generated lettering is not deterministic. Human approval of the final images is not claimed."
 }

@@ -27,6 +27,7 @@ OCR-кеша, детектор потерянных таблиц, сверка �
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import glob
 import hashlib
 import json
@@ -41,6 +42,8 @@ import case_paths as cp  # noqa: E402
 
 POLICY_NAME = "quality_gate.json"
 SUPPRESSIONS_NAME = "quality_gate.suppressions.jsonl"
+PACKAGE_REGISTRY_NAME = "sostav_paketa.md"
+PACKAGE_DRAFT_RE = re.compile(r"^\d{2}_.+\.md$")
 POLICY_KINDS = frozenset({"remark", "prohibition"})
 POLICY_EXPECT = frozenset({"present", "absent"})
 
@@ -505,8 +508,39 @@ def case_paths(case: str) -> dict:
             "requisites": case_requisite_files(case)}
 
 
+def check_package_registry(case: str, drafts: list[str] | None = None) -> list[str]:
+    """Сверить имена черновиков с подтвержденным владельцем составом пакета."""
+    registry = cp.working(case) / PACKAGE_REGISTRY_NAME
+    if not registry.is_file():
+        return [f"состав пакета не сверялся: реестр {cp.CONTEXT}/{cp.WORKING}/"
+                f"{PACKAGE_REGISTRY_NAME} не найден"]
+    try:
+        slots = [line.strip() for line in registry.read_text(encoding="utf-8").splitlines()
+                 if line.strip()]
+    except (OSError, UnicodeError) as exc:
+        return [f"состав пакета не сверялся: реестр {PACKAGE_REGISTRY_NAME} "
+                f"не прочитан ({exc})"]
+    duplicates = sorted(name for name, count in Counter(slots).items() if count > 1)
+    if duplicates:
+        return [f"состав пакета не сверялся: слот повторен в реестре: {name}"
+                for name in duplicates]
+    if drafts is None:
+        drafts = sorted(glob.glob(os.path.join(os.fspath(cp.drafts(case)), "*.md")))
+    expected = set(slots)
+    actual = {os.path.basename(path)[:-3] for path in drafts
+              if PACKAGE_DRAFT_RE.fullmatch(os.path.basename(path))}
+    missing = [f"пропущен слот: {name}" for name in sorted(expected - actual)]
+    extra = [f"лишний файл: {name}.md" for name in sorted(actual - expected)]
+    return missing + extra
+
+
 def print_rules(json_mode: bool = False) -> int:
     schema = {
+        "package": {
+            "path": ".agent/context/_working/sostav_paketa.md",
+            "format": "один слот в строке, как имя черновика без .md",
+            "mode": "только чтение",
+        },
         "policy": {
             "path": ".agent/context/_working/quality_gate.json",
             "format": {"version": 1, "rules": [{
@@ -531,6 +565,7 @@ def print_rules(json_mode: bool = False) -> int:
     print("- DOC: каждое значимое число черновика должно быть в источниках дела")
     print("- REQUISITES: ИНН, БИК и расчетные счета проходят контрольные суммы")
     print("- CASE: черновики проверяются против карты, позиции, практики и рабочего контекста")
+    print("- PACKAGE: имена черновиков сверяются с подтвержденным реестром состава")
     print("- OWNER: явные JSON-правила present/absent; проза брифа не разбирается")
     print("- SUPPRESSIONS: JSONL finding_id + обязательная reason; запреты не глушатся")
     return 0
@@ -587,6 +622,8 @@ def main() -> int:
                         "материалов дела — материалы не прогнаны через "
                         "markdown_extract.py, реквизиты НЕ проверены"]))
     if paths:
+        report.append(("case.package", "состав пакета",
+                       check_package_registry(args.case, paths["drafts"])))
         if not args.doc and not paths["drafts"]:
             report.append(("case.drafts", f"дело {args.case}",
                            ["черновиков в .agent/drafts/ нет — сверять нечего"]))
@@ -711,6 +748,33 @@ def selftest() -> int:
     empty_ocr = os.path.join(tmp, "ocr")
     os.makedirs(empty_ocr)
 
+    package_case = os.path.join(tmp, "package")
+    package_drafts = os.path.join(package_case, cp.DRAFTS)
+    package_registry = cp.working(package_case) / PACKAGE_REGISTRY_NAME
+    os.makedirs(package_drafts)
+    os.makedirs(package_registry.parent)
+    package_registry.write_text(
+        "01_isk\n02_prokuratura_regiona\n", encoding="utf-8")
+    package_isk = os.path.join(package_drafts, "01_isk.md")
+    package_prosecutor = os.path.join(package_drafts, "02_prokuratura_regiona.md")
+    open(package_isk, "w", encoding="utf-8").write("")
+    open(package_prosecutor, "w", encoding="utf-8").write("")
+    open(os.path.join(package_drafts, "sluzhebnaya_zametka.md"),
+         "w", encoding="utf-8").write("")
+    package_match = check_package_registry(package_case)
+    package_registry.write_text("01_isk\n01_isk\n", encoding="utf-8")
+    package_duplicate = check_package_registry(package_case)
+    package_registry.write_text(
+        "01_isk\n02_prokuratura_regiona\n", encoding="utf-8")
+    os.remove(package_prosecutor)
+    package_missing = check_package_registry(package_case)
+    open(package_prosecutor, "w", encoding="utf-8").write("")
+    package_extra_path = os.path.join(package_drafts, "99_lishniy.md")
+    open(package_extra_path, "w", encoding="utf-8").write("")
+    package_extra = check_package_registry(package_case)
+    os.remove(package_registry)
+    package_unverified = check_package_registry(package_case)
+
     # M06: решения владельца — JSON, замечания — стабильные id, глушитель — JSONL
     # с обязательной причиной. Запрет владельца глушителем не снимается.
     policy_doc = os.path.join(tmp, "policy-doc.md")
@@ -759,6 +823,17 @@ def selftest() -> int:
         ("валидный ИНН проходит", check_requisites(req_ok, None) == []),
         ("битый ИНН ловится", len(check_requisites(req_bad, None)) == 1),
         ("пустая OCR-папка — замечание", len(check_ocr(empty_ocr)) == 1),
+        ("состав пакета совпал с реестром", package_match == []),
+        ("повтор слота не маскирует разницу в числе файлов",
+         package_duplicate == [
+             "состав пакета не сверялся: слот повторен в реестре: 01_isk"]),
+        ("пропущенный слот пакета назван",
+         package_missing == ["пропущен слот: 02_prokuratura_regiona"]),
+        ("лишний файл пакета назван",
+         package_extra == ["лишний файл: 99_lishniy.md"]),
+        ("без реестра состав не считается сверенным",
+         len(package_unverified) == 1
+         and "состав пакета не сверялся" in package_unverified[0]),
         ("нечитаемый requisites не роняет", len(check_requisites(tmp + "/нет.json", None)) == 1),
         ("policy JSON прочитан без прозы", len(owner_rules) == 2 and not owner_config),
         ("owner prohibition дает машиночитаемую находку",

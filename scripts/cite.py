@@ -17,6 +17,7 @@ knowledge/plenumy), без чтения агентом всего кодекса
     python3 scripts/cite.py "глава 25.3 НК"
     python3 scripts/cite.py --json "ст. 37 УК"
     python3 scripts/cite.py --list                # какие кодексы/пленумы есть на диске
+    python3 scripts/cite.py --resource bylaw:slug --json  # дополнительный акт из реестра
 
 Не нашел — сеть только если явно попросили: этот скрипт сеть не трогает
 никогда, это обязанность вызывающего (Фемида/агент), см. .claude/CLAUDE.md.
@@ -28,6 +29,7 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KODEKSY_DIR = os.path.join(ROOT, "knowledge", "kodeksy")
@@ -60,7 +62,8 @@ PLENUM_QUERY_RE = re.compile(
 def read(path: str) -> str | None:
     if not os.path.exists(path):
         return None
-    return open(path, encoding="utf-8").read()
+    with open(path, encoding="utf-8") as stream:
+        return stream.read()
 
 
 # Действующий федеральный кодекс правится чаще, чем раз в три года. Дата старше —
@@ -117,6 +120,98 @@ def frontmatter_field(text: str, field: str) -> str | None:
         items = [ln[4:].strip().strip('"') for ln in m.group(1).splitlines()]
         return items[0] + (f" (+{len(items) - 1} частей)" if len(items) > 1 else "")
     return None
+
+
+def freshness_meta(text: str) -> dict:
+    """Только явная repair-пометка понижает доверие; старый корпус не переоцениваем."""
+    source = frontmatter_field(text, "source_freshness")
+    declared = frontmatter_field(text, "статус_свежести")
+    header = text[4:].split("\n---\n", 1)[0] if text.startswith("---\n") else ""
+    marked = re.search(r'''(?m)^\s*["']?(?:source_freshness|статус_свежести)["']?\s*:''', header)
+    if not marked:
+        return {}
+    if source == "mixed_legacy_cache" or declared == "needs_review":
+        warning = ("корпус восстановлен из смешанных источников; текст найден, "
+                   "но свежесть требует сверки с первоисточником")
+    else:
+        warning = (f"заявлены происхождение «{source or 'неизвестно'}» и статус "
+                   f"«{declared or 'неизвестно'}», но cite.py не получил связанного "
+                   "проверяемого доказательства")
+    return {
+        "source_freshness": source,
+        "freshness_declared_status": declared,
+        "freshness_status": "needs_review",
+        "freshness_warning": warning,
+    }
+
+
+def find_resource(resource_id: str) -> dict:
+    """Зарегистрированный дополнительный акт, только локальное чтение."""
+    result = {"query": resource_id, "resource_id": resource_id, "found": False}
+    try:
+        from corpus_registry import registry, validate_resource
+        resource = next((item for item in registry(Path(ROOT)) if item["id"] == resource_id), None)
+        if resource is None:
+            raise ValueError("акт не зарегистрирован: corpus_registry.py --help")
+        resource = validate_resource(resource)
+        root = Path(ROOT).resolve()
+        path = root / resource["output"]
+        path.resolve().relative_to(root / "knowledge")
+        if any(part.is_symlink() for part in (path, *path.parents)):
+            raise ValueError("симлинк вместо файла корпуса")
+        text = read(str(path))
+        if text is None:
+            raise ValueError("рабочая копия ещё не загружена")
+        boundary = re.match(r"^---\n.*?\n---\n", text, re.S)
+        if boundary is None:
+            raise ValueError("у файла нет метаданных источника")
+        red = frontmatter_field(text, "дата_редакции")
+        result.update(found=True, file=resource["output"], text=text[boundary.end():],
+                      integrity=integrity_ok(text), source=frontmatter_field(text, "источник"),
+                      redaction_date=red, redaction_status=redaction_status(red)[0],
+                      redaction_note=redaction_status(red)[1],
+                      cite_tag=resource.get("title") or resource_id, **freshness_meta(text))
+        # Дополнительный акт не превращается в проверенный первоисточник только
+        # потому, что его HTML скачан. Допуск нормы остаётся отдельной проверкой.
+        if not result.get("freshness_status"):
+            result.update(freshness_status="needs_review", freshness_warning=
+                          "локальная копия доступна; действующую редакцию и первоисточник нужно сверить")
+    except (OSError, ValueError, KeyError, TypeError, ImportError) as exc:
+        result["error"] = str(exc)
+    return result
+
+
+def request_background(result: dict, *, force: bool = False) -> None:
+    """Короткая локальная постановка в очередь. Сеть и worker lock не вызываются."""
+    try:
+        import background_corpus
+        if not force and not background_corpus.enabled(Path(ROOT)):
+            return
+        if (not force and result.get("found") and not result.get("freshness_status")
+                and result.get("integrity") is not False
+                and result.get("redaction_status") == "ОК"):
+            return
+        resource_id = result.get("resource_id")
+        if not resource_id:
+            match = ARTICLE_QUERY_RE.search(result["query"]) or CHAPTER_QUERY_RE.search(result["query"])
+            slug = CODE_SLUGS.get(match.group(2).lower()) if match else None
+            if slug:
+                resource_id = "legal-corpus:code:" + slug
+        from corpus_registry import registry
+        resources = registry(Path(ROOT))
+        resource = next((item for item in resources if item["id"] == resource_id
+                         or (result.get("file") and item.get("output") == result["file"])), None)
+        if resource is None:
+            return
+        job = (background_corpus.enqueue_id(Path(ROOT), resource["id"], force=True) if force
+               else background_corpus.enqueue(Path(ROOT), resource, priority=0))
+        result["background"] = {"resource_id": resource["id"], "state": job.get("state"),
+                                "deduplicated": job.get("deduplicated", False),
+                                "waiting_for_network": False}
+    except Exception as exc:
+        # Отказ фоновой очереди не скрывает найденный текст и не меняет его rc.
+        result["background"] = {"state": "unavailable", "reason": type(exc).__name__,
+                                "waiting_for_network": False}
 
 
 def extract_section(text: str, heading_line: str) -> str | None:
@@ -240,6 +335,7 @@ def find_article(num: str, code_word: str) -> dict:
         "source": part.get("source") or frontmatter_field(text, "источник"),
         "text": section,
         "cite_tag": f"(ст. {num} {code_word.upper()} РФ)",
+        **freshness_meta(text),
     })
     return result
 
@@ -289,6 +385,7 @@ def find_chapter(num: str, code_word: str) -> dict:
         # Тег строится из найденного заголовка: раньше он эхом отдавал ЗАПРОШЕННЫЙ
         # номер, и под чужим текстом стояла синтаксически безупречная ложная ссылка.
         "cite_tag": f"({_found_label(heading_line, 'глава')} {code_word.upper()} РФ)",
+        **freshness_meta(text),
     })
     return result
 
@@ -349,6 +446,7 @@ def find_plenum_punkt(punkt: str, date_str: str, num: str | None) -> dict:
         "text": section,
         "cite_tag": f"({title_line.lstrip('# ').strip()}, "
                     f"{_found_label(heading_line, 'п.')})",
+        **freshness_meta(text),
     })
     return result
 
@@ -548,6 +646,8 @@ def main() -> int:
     ap.add_argument("query", nargs="?")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--list", action="store_true")
+    ap.add_argument("--resource", help="точный id зарегистрированного дополнительного акта")
+    ap.add_argument("--enqueue", action="store_true", help="поставить проверку в локальную фоновую очередь")
     ap.add_argument("--full", action="store_true",
                     help=f"выдать целиком (по умолчанию срез до {MAX_OUT_CHARS} знаков)")
     ap.add_argument("--selftest", action="store_true",
@@ -559,22 +659,27 @@ def main() -> int:
     if a.list:
         list_corpus()
         return 0
-    if not a.query:
+    if not a.query and not a.resource:
         ap.print_help()
         return 1
 
-    result = resolve(a.query)
+    result = find_resource(a.resource) if a.resource else resolve(a.query)
+    request_background(result, force=a.enqueue)
     if a.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         if not result["found"]:
             return 1
         if result.get("integrity") is False:
             return 3
+        if result.get("freshness_status"):
+            return 2
         return 0 if result.get("redaction_status", "НЕИЗВЕСТНА") == "ОК" else 2
 
     if not result["found"]:
         print(f"НЕ НАЙДЕНО: {result['query']}")
         print(f"  причина: {result['error']}")
+        if result.get("background"):
+            print("  фоновая очередь: " + str(result["background"]["state"]))
         return 1
 
     body, cut = clip(result["text"], a.full)
@@ -594,12 +699,18 @@ def main() -> int:
     part_note = f", {result['часть'].lower()}" if result.get("часть") else ""
     print(f"Источник: {result['file']}{part_note} ({result.get('source', '?')}, ред. от {red})")
     print(f"Для вставки: {result['cite_tag']}")
+    if result.get("background"):
+        print("Фоновая очередь: " + str(result["background"]["state"]) + "; чтение сети не ждёт.")
 
     rc = 0
     if result.get("integrity") is False:
         print("\n⛔ ЦЕЛОСТНОСТЬ КОРПУСА НАРУШЕНА: текст файла не совпадает с sha256 "
               "из его же frontmatter. Цитировать нельзя, перевыгрузить корпус.")
         rc = 3
+    if result.get("freshness_status"):
+        print(f"\n⚠ СВЕЖЕСТЬ {result['freshness_status']}: "
+              f"{result.get('freshness_warning', '')}.")
+        rc = rc or 2
     st = result.get("redaction_status", "НЕИЗВЕСТНА")
     if st != "ОК":
         print(f"\n⚠ РЕДАКЦИЯ {st}: {result.get('redaction_note', '')}.\n"

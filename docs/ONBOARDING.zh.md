@@ -1,68 +1,87 @@
-# 上手引导
+# 首次运行 Themiz
 
-<p align="center"><img src="assets/pantheon/workflow/01-intake.png" alt="收案：案件材料落在大理石桌上，每一页在忒弥兹手下化作一块玻璃板" width="100%"></p>
+<p align="center"><img src="assets/pantheon/workflow/01-intake.png" alt="Themiz 收案流程插图，并非应用截图" width="100%"></p>
 
-这份引导假设你是律师而不是工程师，也从来没有在终端里装过东西。每一步都写清楚要做什么，以及之后应该看到什么。
+这条路径使用 macOS、Python 3.11 或更新版本，以及 Xcode 命令行工具。Apple Vision 只能在 Mac 上识别扫描件。Windows 和 Linux 上的完整安装尚未验证。你所选智能体的访问权限和订阅额度需要另外配置。
 
-最短的路是对话式的：在 Claude Code 里打开项目并运行 `/themiz-setup`。忒弥斯会自我介绍，一次问一个关于你执业方向的问题，说明为什么问，没有你的同意不装任何东西。下面是同一条路，靠双脚走。
+如果你更喜欢对话，可以在 Codex CLI 或 Claude Code 中打开[分步引导](ONBOARDING-CHAT.zh.md)。两个客户端是平等的入口。安装前，先让智能体说明磁盘上会发生什么变化。
 
-你需要一台 Mac 来本地识别扫描件，还需要 Python 3.11 以上、Xcode 命令行工具和 Claude Code。
+## 第 1 步：检查运行环境
 
-1. **把项目拿下来。**
+```bash
+sw_vers -productVersion
+python3 --version
+xcode-select -p
+```
 
-   ```bash
-   git clone https://github.com/zarubinvibe/themiz.git
-   cd themiz
-   ```
+第一条命令显示已安装的 macOS 版本，第二条应显示 Python 3.11 或更新版本，第三条应显示开发者工具路径。音频转写还需要 ffmpeg 和本地 Whisper 模型。缺少组件时，安装程序会在最终报告中明确列出。检查失败或超时不等于通过。
 
-   你会看到 `themiz` 目录，终端提示符进入其中。
+## 第 2 步：获取项目
 
-2. **在这个目录里打开 Claude Code。**
+```bash
+git clone https://github.com/zarubinvibe/themiz.git
+cd themiz
+```
 
-   ```bash
-   claude
-   ```
+第一条命令会创建 `themiz` 文件夹，第二条命令会让终端进入该文件夹。没有 Git 时，可以下载 [ZIP](https://github.com/zarubinvibe/themiz/archive/refs/heads/main.zip)，解压后在终端中打开该目录。
 
-   你会看到智能体在项目里启动。
+## 第 3 步：安装并启用环境
 
-3. **运行带引导的安装。** 输入 `/themiz-setup`。
+```bash
+bash install.sh
+. .venv/bin/activate
+```
 
-   你会看到忒弥斯先自我介绍，然后问你的执业情况：常办什么案子、所在地区、常去哪些法院、材料放在哪里、有没有电子签名、要不要 Telegram 提醒。一次一个问题，每个都说明原因并给出回答示例。
+安装程序会把 Python 包放进 `.venv`，并准备字体、本地识别工具和工作目录。完成后会打印一份报告。运行第二条命令后，终端提示符通常会以 `(.venv)` 开头。
 
-4. **让她先检查机器，再安装。**
+## 第 4 步：选择客户端
 
-   她会说清楚缺什么、多大、用来做什么、没有它哪部分不能工作。你不明确同意，就什么都不装。沉默算作拒绝。
+Codex CLI：
 
-5. **听清楚真实的限制。** 本地识别扫描件依赖 Apple Vision，只在 macOS 上有。在 Windows 或 Linux 上你只能读文本 PDF、DOCX 和 XLSX。这一点现在就告诉你，而不是等你带着一叠扫描件来的那天。
+```bash
+codex
+```
 
-6. **看着法律语料下载下来。** 先下你执业最需要的法典，其余在后台补齐，之后每月核对版本。
+让它使用 `themiz-setup` 技能配置 Themiz。
 
-   你会看到语料落在自己的硬盘上。法条从这里逐字引用，不靠记忆转述。
+Claude Code：
 
-7. **交给她一个真实的案卷目录。** 不是演示数据，是你自己的材料。
+```bash
+claude
+```
 
-   你会看到扫描件在本地被识别，大约每页一秒半，税号、企业注册号、案号和金额用校验位核对。
+然后运行 `/themiz-setup`。无论使用哪个客户端，智能体都应先读取项目规则、了解你的执业情况，并在处理当事人材料前说明所需权限。两个入口配置的是同一个项目。
 
-8. **读案件地图。** 当事人、日期、诉求和证据都在一处。
+## 第 5 步：用安全样例检查边界
 
-   你会看到一份文件，而不是要重读的两百页。
+先使用不含敏感数据的文件副本。文本提取和 OCR 在本地运行，发送给智能体的片段由你选择的模型供应商处理。使用真实案卷前，让智能体用直白的话复述这条边界。材料接收后，不要修改 `00_intake/` 中的原始文件。
 
-9. **要正反两面的判例。** 一个智能体找支持，一个找程序上的招法，还有一个专门找对方会用的东西。
+公开克隆不包含填充好的法律语料库。允许使用的来源和所需文件需要另外配置。下载失败或版本未经确认，仍属于待解决的问题。磁盘上有文本，不代表法律条文就是现行版本。
 
-   你会在对方开口之前看到争议的两面。
+## 第 6 步：查看案件状态
 
-10. **拿一份草稿来改。** 一个智能体写，另一个没写过它的来审。审阅之前不允许拼装文书，提交之前核对格式，每次提交都跑个人数据守卫。
+先让智能体创建案件。将 `cases/client/case` 替换为现有案件文件夹的实际路径。这条命令只汇总该具体案件，不是通用运行环境概览。
 
-    你会看到一份以律师身份去改的草稿，而不是需要逐行复核的文本。思考和决定仍然属于你。
+```bash
+python3 scripts/themiz_status.py cases/client/case --brief
+```
 
-## 以后怎么更新
+对照原件检查案件地图，金额、案号和引文都需要核实。范围小的任务使用 FAST，复杂任务使用 FULL，并安排独立读者和审阅。草稿由没有参与撰写的角色检查。是否签署和提交，由你决定。
 
-以后有了新版本，不用重新克隆：在 Claude Code 里打开项目并运行 `/themiz-update`。它先告诉你有什么变化，只做快进式更新，绝不碰你的案卷目录，更新之后重新跑检查。
+## 第 7 步：按需打开浏览器面板
 
-## 如果这份引导帮到了你
+```bash
+.venv/bin/python cockpit/app.py
+```
 
-如果忒弥斯把机械活从你的桌上拿走了，请点亮星标：[https://github.com/zarubinvibe/themiz](https://github.com/zarubinvibe/themiz)。这只要一秒，却决定别的律师能不能找到它。
+打开 `http://127.0.0.1:8800`，你会看到本地状态面板。这个面板并非必需，其智能体按钮目前只会调用 Claude Code。通过 Codex 执行任务时，请使用 Codex CLI。
 
-你已经在真实案件上跑过一遍，所以你正是能改进它的人。路径很短：先 fork 仓库，建一个分支 branch，提交 commit，推送 push，然后开一个 Pull Request。请不要直接向 `main` 推送，发布闸门会拒绝。
+## 第 8 步：更新现有 Git 克隆
 
-发现某一步写错了？到 [https://github.com/zarubinvibe/themiz/issues](https://github.com/zarubinvibe/themiz/issues) 开一个 issue，并用虚构数据描述。真实的当事人材料永远不要附在公开 issue 里。
+在 Codex 中，让它使用 `themiz-update` 技能更新 Themiz。在 Claude Code 中运行 `/themiz-update`。这种更新需要 Git 克隆。若通过 ZIP 安装，请新建 Git 克隆；核对后让智能体迁移本地数据，且不要覆盖原始文件。先检查拟议变更和工作目录状态。更新程序与核对法律版本仍是两项不同的操作。
+
+## 反馈与贡献
+
+有用的话，可以[点亮星标](https://github.com/zarubinvibe/themiz)。发现问题时，请[提交 issue](https://github.com/zarubinvibe/themiz/issues)，附上命令、错误信息和虚构样例。不要公开当事人的材料。
+
+如果你想提交修复：先 fork 仓库，创建分支 branch，提交 commit，推送 push，然后开一个 Pull Request。不要直接向 `main` 推送变更。

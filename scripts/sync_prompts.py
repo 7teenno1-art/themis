@@ -32,6 +32,11 @@ import shutil
 import sys
 import tomllib
 
+if __package__:
+    from .model_policy import CODEX_ROLE_RUNTIME
+else:
+    from model_policy import CODEX_ROLE_RUNTIME
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLATFORM_AGENT_DIR = "." + "co" + "dex"
 PLATFORM_LABEL = "C" + "odex"
@@ -112,10 +117,23 @@ def render_toml(name, meta, body):
     if "'''" in body or body.rstrip().endswith("'"):
         raise ValueError(f"{name}: тело содержит ''' или кончается апострофом — "
                          f"литеральная строка TOML его не удержит")
+    try:
+        model, effort = CODEX_ROLE_RUNTIME[name]
+    except KeyError as e:
+        raise ValueError(f"{name}: Codex-модель роли не определена") from e
+    instructions = (
+        "## Codex runtime\n"
+        f"Использовать модель `{model}` и effort `{effort}` из полей TOML выше; "
+        "`haiku`/`sonnet`/`opus` ниже — исторические обозначения Claude, не параметры "
+        "Codex и не основание spawn. Решение модели — `scripts/model_policy.py`.\n\n"
+        + body
+    )
     lines = [
         f"name = {toml_basic(meta.get('name', name))}",
         f"description = {toml_basic(meta.get('description', ''))}",
-        f"developer_instructions = {toml_literal_block(body)}",
+        f"model = {toml_basic(model)}",
+        f"model_reasoning_effort = {toml_basic(effort)}",
+        f"developer_instructions = {toml_literal_block(instructions)}",
         "",
     ]
     text = "\n".join(lines)
@@ -125,7 +143,9 @@ def render_toml(name, meta, body):
         raise ValueError(f"{name}: имя исказилось при генерации")
     if got.get("description", "") != meta.get("description", ""):
         raise ValueError(f"{name}: описание исказилось при генерации")
-    if got.get("developer_instructions", "").strip() != body.strip():
+    if got.get("model") != model or got.get("model_reasoning_effort") != effort:
+        raise ValueError(f"{name}: Codex-профиль исказился при генерации")
+    if got.get("developer_instructions", "").strip() != instructions.strip():
         raise ValueError(f"{name}: ТЕЛО ПРОМПТА исказилось при генерации")
     return text
 
@@ -217,16 +237,17 @@ def selftest():
         for d in (".claude/agents", ".claude/skills/proba", ".claude/commands"):
             os.makedirs(os.path.join(tmp, d))
         # Тело с обратным слешем в grep — ровно то, на чем падает базовая строка TOML
-        with open(os.path.join(tmp, ".claude/agents/chitatel.md"), "w", encoding="utf-8") as f:
-            f.write('---\nname: chitatel\ndescription: "Петров" — читатель\ntools: Read\n'
-                    'model: haiku\n---\n\n# Петров\n\n`grep -n "А\\|Б" файл.md` и «кавычки».\n')
+        with open(os.path.join(tmp, ".claude/agents/archivist.md"), "w", encoding="utf-8") as f:
+            f.write('---\nname: archivist\ndescription: "Петров" — читатель\ntools: Read\n'
+                    'model: haiku\n---\n\n# Петров\n\n`grep -n "А\\|Б" файл.md` и «кавычки».\n'
+                    'Работа Claude Code по CLAUDE.md.\n')
         with open(os.path.join(tmp, ".claude/skills/proba/SKILL.md"), "w", encoding="utf-8") as f:
             f.write("---\nname: proba\n---\n\nтело скилла\n")
         with open(os.path.join(tmp, ".claude/commands/delat.md"), "w", encoding="utf-8") as f:
             f.write("---\ndescription: Делать дело\nargument-hint: x\n---\n\n# /delat\n\nтекст\n")
 
         want = plan(tmp)
-        agent_rel = os.path.join(PLATFORM_AGENT_DIR, "agents", "chitatel.toml")
+        agent_rel = os.path.join(PLATFORM_AGENT_DIR, "agents", "archivist.toml")
         assert agent_rel in want, "агент не сгенерирован"
         assert ".agents/skills/proba/SKILL.md" in want, "скилл не скопирован"
         assert ".agents/skills/source-command-delat/SKILL.md" in want, "команда не обернута"
@@ -235,6 +256,8 @@ def selftest():
         assert 'grep -n "А\\|Б"' in got["developer_instructions"], \
             "обратный слеш в grep-паттерне исказился при генерации"
         assert got["description"] == '"Петров" — читатель', "кавычки в описании исказились"
+        assert (got["model"], got["model_reasoning_effort"]) == ("gpt-5.6-luna", "low"), \
+            "Codex-модель archivist не сгенерирована"
         assert "source command `delat`" in want[".agents/skills/source-command-delat/SKILL.md"]
 
         # Платформенная подстановка: канон говорит Claude Code, вариант для .agents — иной рантайм.
@@ -246,8 +269,11 @@ def selftest():
         assert "Claude Code" not in got and "CLAUDE.md" not in got, "канон протек в вариант"
         canon = open(os.path.join(tmp, ".claude/skills/proba/SKILL.md"), encoding="utf-8").read()
         assert "Claude Code" in canon, "подстановка испортила сам канон"
-        assert agent_rel in want and PLATFORM_LABEL not in want[agent_rel], \
-            "подстановка для .agents применена к платформенному варианту — она только для .agents"
+        with open(os.path.join(tmp, ".claude/agents/archivist.md"), encoding="utf-8") as f:
+            _, original_body = split_md(f.read())
+        rendered_body = tomllib.loads(want[agent_rel])["developer_instructions"].split("\n\n", 1)[1]
+        assert rendered_body.strip() == original_body, \
+            "подстановка .agents исказила каноническое тело после Codex runtime-префикса"
 
         assert len(compare(tmp)) == len(want), "отсутствующее производное не поймано"
         assert apply(tmp), "apply ничего не записал"
@@ -257,12 +283,12 @@ def selftest():
         p = os.path.join(tmp, agent_rel)
         with open(p, "a", encoding="utf-8") as f:
             f.write("\nlishnee = 1\n")
-        assert any("chitatel.toml" in r for r, _ in compare(tmp)), \
+        assert any("archivist.toml" in r for r, _ in compare(tmp)), \
             "ручная правка производного НЕ поймана — генератор бесполезен"
         apply(tmp)
 
         # Осиротевшее производное: источник в каноне удален
-        os.remove(os.path.join(tmp, ".claude/agents/chitatel.md"))
+        os.remove(os.path.join(tmp, ".claude/agents/archivist.md"))
         assert any("лишнее" in w for _, w in compare(tmp)), \
             "производное без источника в каноне НЕ поймано"
 
@@ -280,6 +306,7 @@ def selftest():
 def main():
     ap = argparse.ArgumentParser(description="Единый источник промптов: канон .claude/ → производное.")
     ap.add_argument("--apply", action="store_true", help="записать производное")
+    ap.add_argument("--check", action="store_true", help="сверить производное с каноном (по умолчанию)")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
     if a.selftest:

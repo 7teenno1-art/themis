@@ -1,0 +1,13 @@
+Create the ENGLISH localization of the accepted Russian Themiz Pantheon workflow diagram in reference 1, by editing that image. Preserve its exact composition, geometry, 1672x941 wide landscape size (or higher resolution at the identical aspect ratio), all seven plaque positions, numbers, complete arrow directions, lighting, objects, camera and material. Do not redesign the scene. References 2–5 supply the Pantheon style anchor, column, Themis character bible, and prop bible; use them for consistency only.
+
+Replace ONLY the Russian inscriptions on the seven plaques by these exact English inscriptions:
+1 / INTAKE
+2 / EXTRACT
+3 / CASE MAP
+4 / RESEARCH
+5 / COUNCIL
+6 / DRAFT
+7 / HEARING
+Top row left to right 1,2,3,4. Bottom row LEFT to RIGHT 7,6,5. Keep the sequential pale-blue arrow chain folder -> 1 -> 2 -> 3 -> 4, then down into 5 at bottom right, then LEFTWARD 5 -> 6 -> 7. Arrowheads clearly point at their next plaque. No extra branches or shortcuts. Same original gold folder at left, blindfolded Themis holding balanced scales, lowered sword, same column.
+
+The inscription finish is critical: letters and numerals are INCISED / INTAGLIO into marble, their recessed floors and inward-sloping walls painted with warm deep satin antique GOLD paint. Subtle rubbed brush texture INSIDE the carving only. Strong readable contrast, visible inward-cut bevel and inner shadow. Preserve stone depth; not raised metal letters, not a flat digital overlay, not pale-gray carving, not illegible distressing. Broad uppercase classical serif, large and centered like the Russian version. The correct result should look like the same photograph with ONLY the language of the carved lettering changed. No UI, no headline, no watermarks, no additional text.

@@ -116,6 +116,7 @@
       "Edit(/scripts/priemka_remont.sh)",
       "Edit(/scripts/quality_gate.py)",
       "Edit(/scripts/sreda.py)",
+      "Edit(/scripts/spawn_registry.py)",
       "Edit(/scripts/stage4_spec.py)",
       "Edit(/scripts/stage5_spec.py)",
       "Edit(/scripts/stage65_spec.py)",

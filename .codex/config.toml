@@ -1,0 +1,56 @@
+model = "gpt-6-astra"
+model_reasoning_effort = "high"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[features]
+multi_agent = true
+
+[agents]
+enabled = true
+default_subagent_model = "gpt-5.6-luna"
+default_subagent_reasoning_effort = "medium"
+max_concurrent_threads_per_session = 6
+max_depth = 2
+
+[agents.archivist]
+config_file = "agents/archivist.toml"
+
+[agents.case-mapper]
+config_file = "agents/case-mapper.toml"
+
+[agents.case-reconciler]
+config_file = "agents/case-reconciler.toml"
+
+[agents.doc-drafter]
+config_file = "agents/doc-drafter.toml"
+
+[agents.doc-reviewer]
+config_file = "agents/doc-reviewer.toml"
+
+[agents.docx-reader]
+config_file = "agents/docx-reader.toml"
+
+[agents.hearing-prep]
+config_file = "agents/hearing-prep.toml"
+
+[agents.image-reader]
+config_file = "agents/image-reader.toml"
+
+[agents.inbox-triage]
+config_file = "agents/inbox-triage.toml"
+
+[agents.pdf-reader]
+config_file = "agents/pdf-reader.toml"
+
+[agents.practice-hunter-classic]
+config_file = "agents/practice-hunter-classic.toml"
+
+[agents.practice-hunter-skeptic]
+config_file = "agents/practice-hunter-skeptic.toml"
+
+[agents.practice-hunter-tactical]
+config_file = "agents/practice-hunter-tactical.toml"
+
+[mcp_servers.markitdown]
+command = "markitdown-mcp"

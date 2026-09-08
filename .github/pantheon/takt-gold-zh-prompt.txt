@@ -1,0 +1,15 @@
+Edit the accepted ENGLISH Themiz workflow diagram in reference 1 into its SIMPLIFIED CHINESE version. Deliver one finished landscape PNG, preserving exactly the composition and 1672x941 size (or higher resolution at same aspect ratio). References 2–5: Pantheon style/material anchor (not Athena identity), exact column, Themis character bible, prop bible. Only change the language of the seven inscriptions. Keep all objects, camera, marble plaque positions, gold-paint intaglio technique, numbers and arrow geometry IDENTICAL to the first reference.
+
+Exact labels, each one appears once, no English or Russian remaining:
+1 / 接收
+2 / 读取
+3 / 地图
+4 / 判例
+5 / 合议
+6 / 文书
+7 / 开庭
+
+Top row left to right: 1,2,3,4. Bottom row LEFT to RIGHT: 7,6,5. The ONLY blue-arrow chain is gold folder ->1->2->3->4, then down into5 at lower right, then LEFTWARD5->6->7. All seven destination arrowheads visible. No branching, no shortcut folder-to-bottom, no loop.
+
+Chinese inscriptions in large readable traditional Song/Ming-style serif character shapes, exact correct simplified Chinese strokes. Carved DOWN INTO the marble, NOT embossed: warm deep antique GOLD PAINT rubbed into the recessed floors and inward-cut walls of all characters and numerals. Fine gold-brush texture only inside the letter grooves, carved marble bevel edges, inner shadow, clean unpainted marble around each character. Strong contrast and visible sculpted depth, no faint pale text, no flat gold overlay, no raised gold applique. Character strokes substantial enough for small README viewing.
+Retain blindfolded marble Themis holding gold scales and lowered sword, family column, gold folder, warm daylight ivory background, realistic support and soft shadows. No UI chrome, no header, no watermark, no additional text. The result is the SAME Pantheon editorial diagram in a different language.

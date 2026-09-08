@@ -12,11 +12,12 @@
      На живой сессии это давало 174 212 561 вместо 72 634 172 — завышение в 2,4 раза.
 
 Использование:
-    token_ledger.py                       # свежая сессия проекта в cwd
+    token_ledger.py                       # свежая сессия активного провайдера в cwd
     token_ledger.py SESSION.jsonl         # конкретная сессия
     token_ledger.py --all                 # все сессии проекта, сводно
     token_ledger.py --track FAST          # + вердикт по цели трека (exit 3 при перерасходе)
     token_ledger.py --ctx-limit 150000    # потолок контекста запроса (exit 3 при пробое, 0 — выкл)
+    token_ledger.py --provider codex      # текущая Codex-сессия: cumulative tokens, без цены
     token_ledger.py --json                # машинный вывод
     token_ledger.py --selftest            # проверка без сети и без реальных сессий
 
@@ -34,6 +35,7 @@ import re
 import sys
 import tempfile
 from collections import defaultdict
+from pathlib import Path
 
 import _obshee as obs
 
@@ -48,6 +50,10 @@ RATES = {
     "sonnet": [3.0, 15.0, 3.75, 0.30],
     "haiku": [1.0, 5.0, 1.25, 0.10],
 }
+
+# Политика Фемиды: рабочие лимиты поставляются подпиской, не API-долларами.
+# Тарифы ниже оставлены исключительно для явного разбора старых Claude-журналов.
+SUBSCRIPTION_ONLY = True
 
 # Пороги трека — ИЗМЕРЕННЫЕ базовые линии по 26 сессиям проекта на 03.08.2026,
 # всего токенов (input + output + cache-write + cache-read).
@@ -130,6 +136,8 @@ OTHER_ALERT_SHARE = 5.0
 # а сам он остался строкой в разрезе агентов. Ключ сохранен в порядке ради старых --json.
 STEP_ORDER = ["основной поток", "0 интейк", "1 карта", "2 практика", "3 позиция",
               "4 составление", "5 проверка", "6 архив", "система", "прочее"]
+
+ROLE_LIMITS_PATH = obs.dom_proekta() / "config" / "limity_roley.json"
 
 
 # Неизвестная модель. Прежде любая строка без opus|sonnet|haiku молча считалась
@@ -429,6 +437,43 @@ def tokens(u: dict) -> int:
     return u["in"] + u["out"] + u["cw"] + u["cr"]
 
 
+def load_role_limits(path: str | os.PathLike[str] | None = None) -> dict[str, int]:
+    """Прочитать положительные целые потолки ролей из JSON-конфигурации."""
+    source = path or ROLE_LIMITS_PATH
+    with open(source, encoding="utf-8") as fh:
+        raw = json.load(fh)
+    if not isinstance(raw, dict):
+        raise ValueError(f"{source}: ожидается объект JSON")
+    limits = {role: limit for role, limit in raw.items() if not role.startswith("_")}
+    bad = [role for role, limit in limits.items()
+           if not role or isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0]
+    if bad:
+        raise ValueError(f"{source}: неверный потолок роли {bad[0]}")
+    return limits
+
+
+def role_warnings(by_role: dict[str, dict], limits: dict[str, int]) -> list[str]:
+    """Предупреждения о расходе каждой машинно названной роли текущего прогона."""
+    warnings = []
+    for role, usage in sorted(by_role.items()):
+        if role == "основной поток":
+            continue
+        spent = tokens(usage)
+        spent_text = f"{spent:,}".replace(",", " ")
+        if role in ("", "?"):
+            warnings.append(
+                f"СТОП: запись расхода не называет роль (role={role!r}, потрачено "
+                f"{spent_text} токенов); нужно машинное поле agentType/attributionAgent.")
+        elif role not in limits:
+            warnings.append(f"⚠ РОЛЬ БЕЗ ЛИМИТА: {role}; потрачено {spent_text} токенов.")
+        elif spent > limits[role]:
+            limit_text = f"{limits[role]:,}".replace(",", " ")
+            warnings.append(
+                f"⚠ ЛИМИТ РОЛИ ПРЕВЫШЕН: {role}; потрачено {spent_text}, "
+                f"разрешено {limit_text} токенов.")
+    return warnings
+
+
 def ctx_verdict(max_ctx: int, limit: int) -> tuple[str, int]:
     """Потолок контекста фазы: превышение — ненулевой код, а не молчание.
 
@@ -490,6 +535,10 @@ def render(rep: dict, track: str | None, ctx_limit: int = 0) -> int:
     print(f"\n{'агент':<26}{'токенов':>14}{'вызовов':>9}")
     for name, u in sorted(rep["by_agent"].items(), key=lambda kv: -tokens(kv[1]))[:15]:
         print(f"{name:<26}{tokens(u):>14,}{u['calls']:>9}")
+    if rep.get("role_warnings"):
+        print()
+        for warning in rep["role_warnings"]:
+            print(warning)
 
     other = tokens(rep["by_step"].get("прочее", blank()))
     other_share = other / total_tok * 100
@@ -521,12 +570,17 @@ def render(rep: dict, track: str | None, ctx_limit: int = 0) -> int:
 
     rc = 0
     if track:
-        text, rc = track_verdict(track, tokens(t))
+        if SUBSCRIPTION_ONLY:
+            text, rc = track_note(track, tokens(t)), obs.KOD_OK
+        else:
+            text, rc = track_verdict(track, tokens(t))
         print(text)
     ctext, crc = ctx_verdict(rep.get("max_ctx", 0), ctx_limit)
     if ctext:
         print(ctext)
-    return max(rc, crc)
+    role_rc = obs.KOD_STOP if any(w.startswith("СТОП:")
+                                  for w in rep.get("role_warnings", [])) else 0
+    return max(rc, crc, role_rc)
 
 
 def track_verdict(track: str, spent: int) -> tuple[str, int]:
@@ -550,6 +604,13 @@ def track_verdict(track: str, spent: int) -> tuple[str, int]:
     return head + f"в пределах ({spent/limit*100:.0f}% цели).", obs.KOD_OK
 
 
+def track_note(track: str, spent: int) -> str:
+    """Плановая норма токенов — наблюдение, не лимит подписки."""
+    return (f"\nтрек {track}: {spent:,} токенов; плановая норма {TRACK_BUDGET[track]:,} — "
+            "только ориентир, не лимит подписки. Квота поставщика не измерена."
+            .replace(",", " "))
+
+
 def project_dir(cwd: str) -> str:
     return str(obs.dom_sessij(cwd))
 
@@ -557,6 +618,151 @@ def project_dir(cwd: str) -> str:
 def latest_session(cwd: str) -> str | None:
     files = glob.glob(os.path.join(project_dir(cwd), "*.jsonl"))
     return max(files, key=os.path.getmtime) if files else None
+
+
+def active_provider(explicit: str = "auto") -> str:
+    """Явный выбор сильнее среды; Codex активен только с session/thread id."""
+    if explicit in ("codex", "claude"):
+        return explicit
+    if explicit != "auto":
+        raise ValueError(f"неизвестный провайдер: {explicit}")
+    return "codex" if (os.environ.get("CODEX_THREAD_ID")
+                       or os.environ.get("CODEX_SESSION_ID")) else "claude"
+
+
+class NoCodexSessions(Exception):
+    """Нет Codex session_meta для cwd; Claude-источник не подставляется."""
+
+
+class CorruptCodexSession(Exception):
+    """Выбранный Codex-журнал не дал целого числового token_count."""
+
+
+def _codex_record(path: str, target_cwd: str) -> dict | None:
+    """Только первая мета; usage читается лишь после выбора активной ветки."""
+    target_cwd = os.path.realpath(target_cwd)
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("type") != "session_meta":
+                continue
+            payload = entry.get("payload") or {}
+            meta = {key: payload.get(key) for key in ("cwd", "id", "parent_thread_id")}
+            return (meta if isinstance(meta.get("cwd"), str)
+                    and os.path.realpath(meta["cwd"]) == target_cwd else None)
+    return None
+
+
+def _codex_usage(path: str) -> int:
+    """Строго читает числовой usage только выбранного потока."""
+    total = 0
+    seen = False
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise CorruptCodexSession(f"битая JSONL-строка: {os.path.basename(path)}") from exc
+            if not isinstance(entry, dict):
+                raise CorruptCodexSession(f"не-объект JSONL: {os.path.basename(path)}")
+            payload = entry.get("payload") or {}
+            if entry.get("type") != "event_msg" or payload.get("type") != "token_count":
+                continue
+            value = ((payload.get("info") or {}).get("total_token_usage") or {}).get("total_tokens")
+            if type(value) is not int or value < 0:
+                raise CorruptCodexSession(f"token_count без total_tokens: {os.path.basename(path)}")
+            seen = True
+            total = max(total, value)
+    if not seen:
+        raise CorruptCodexSession(f"token_count не найден: {os.path.basename(path)}")
+    return total
+
+
+def codex_usage(cwd: str) -> tuple[int, int]:
+    """Независимый от token_audit счет latest root-thread Codex и его детей."""
+    target = os.path.realpath(cwd)
+    records = []
+    for path in glob.glob(str(Path.home() / ".codex" / "sessions" / "**" / "*.jsonl"), recursive=True):
+        parsed = _codex_record(path, target)
+        if parsed is None:
+            continue
+        meta = parsed
+        if isinstance(meta.get("id"), str) and meta["id"]:
+            records.append((path, meta))
+    roots = [row for row in records if not row[1].get("parent_thread_id")]
+    if not roots:
+        raise NoCodexSessions(target)
+    by_id = {row[1]["id"]: row for row in records}
+    active_id = os.environ.get("CODEX_THREAD_ID") or os.environ.get("CODEX_SESSION_ID")
+
+    def root_id(row: tuple[str, dict]) -> str | None:
+        seen = set()
+        while row[1].get("parent_thread_id"):
+            if row[1]["id"] in seen:
+                return None
+            seen.add(row[1]["id"])
+            row = by_id.get(row[1]["parent_thread_id"])
+            if row is None:
+                return None
+        return row[1]["id"]
+
+    if active_id:
+        preferred = {root_id(row) for row in records if row[1]["id"] == active_id}
+        roots = [row for row in roots if row[1]["id"] in preferred]
+        if not roots:
+            raise NoCodexSessions(f"активный поток или его корень не найден: {active_id}")
+    root = max(roots, key=lambda row: os.path.getmtime(row[0]))
+    ids, selected = {root[1].get("id")}, {root[0]}
+    while True:
+        next_rows = [row for row in records if row[1].get("parent_thread_id") in ids
+                     and row[0] not in selected]
+        if not next_rows:
+            break
+        selected.update(row[0] for row in next_rows)
+        ids.update(row[1].get("id") for row in next_rows)
+    return sum(_codex_usage(path) for path in selected), len(selected)
+
+
+def codex_report(cwd: str) -> dict:
+    """Фактический, но неполный отчёт текущей Codex-сессии по cwd.
+
+    В events нет цены и разреза контекста/модели/роли. Не переносим туда Claude-оценки.
+    """
+    spent, streams = codex_usage(cwd)
+    return {
+        "provider": "codex",
+        "session": "последняя Codex-сессия по cwd",
+        "streams": streams,
+        "tokens": spent,
+        "token_status": "cumulative total_token_usage",
+        "money": None,
+        "money_status": "not_applicable(subscription)",
+        "context_status": "unknown",
+        "model_status": "unknown",
+        "role_status": "unknown",
+    }
+
+
+def render_codex(rep: dict, track: str | None, ctx_requested: bool) -> int:
+    print(f"провайдер: Codex   сессия: {rep['session']}   потоков: {rep['streams']}")
+    print(f"токены: {rep['tokens']:,} ({rep['token_status']})".replace(",", " "))
+    print("деньги: НЕ ПРИМЕНЯЕТСЯ (подписка Codex, USD не является лимитом)")
+    print("контекст / модель / роль: ДАННЫХ НЕТ (events не дают нужного разреза)")
+    rc = obs.KOD_NE_RABOTAL if ctx_requested else obs.KOD_OK
+    if ctx_requested:
+        print("потолок контекста: ДАННЫХ НЕТ — проверка не выполнена")
+    if track:
+        print(track_note(track, rep["tokens"]))
+    return rc
 
 
 def selftest() -> int:
@@ -776,6 +982,38 @@ def selftest() -> int:
             ("selftest context_guard пройден", context_guard.selftest() == 0),
         ]
 
+        role_limits = load_role_limits()
+        mapper_limit = role_limits["case-mapper"]
+        drafter_limit = role_limits["doc-drafter"]
+        below = role_warnings({"case-mapper": {"in": mapper_limit - 1, "out": 0, "cw": 0,
+                                                "cr": 0, "calls": 1}}, role_limits)
+        above = role_warnings({
+            "case-mapper": {"in": mapper_limit + 1, "out": 0, "cw": 0,
+                            "cr": 0, "calls": 1},
+            "doc-drafter": {"in": drafter_limit - 1, "out": 0, "cw": 0,
+                             "cr": 0, "calls": 1},
+        }, role_limits)
+        missing = role_warnings({"pdf-reader": {"in": 9_000, "out": 0, "cw": 0,
+                                                 "cr": 0, "calls": 1}}, role_limits)
+        unnamed = role_warnings({"?": {"in": 1, "out": 0, "cw": 0,
+                                        "cr": 0, "calls": 1}}, role_limits)
+        checks += [
+            ("расход роли ниже лимита молчит", below == []),
+            ("перерасход называет роль и обе величины",
+             len(above) == 1 and "case-mapper" in above[0]
+             and f"{mapper_limit + 1:,}".replace(",", " ") in above[0]
+             and f"{mapper_limit:,}".replace(",", " ") in above[0]
+             and "doc-drafter" not in above[0]),
+            ("роль без лимита названа отдельно",
+             len(missing) == 1 and "РОЛЬ БЕЗ ЛИМИТА: pdf-reader" in missing[0]),
+            ("основной поток не выдается за роль",
+             role_warnings({"основной поток": {"in": 99_000, "out": 0, "cw": 0,
+                                                 "cr": 0, "calls": 1}}, {}) == []),
+            ("неназванная роль требует машинный признак",
+             len(unnamed) == 1 and "СТОП:" in unnamed[0]
+             and "agentType/attributionAgent" in unnamed[0]),
+        ]
+
         bad = [name for name, ok in checks if not ok]
         for name, ok in checks:
             print(f"  {'✓' if ok else '✗'} {name}")
@@ -790,6 +1028,8 @@ def main() -> int:
     ap = obs.parser("Замер расхода токенов по шагам конвейера Фемиды")
     ap.add_argument("session", nargs="?", help="путь к session.jsonl (по умолчанию — свежая сессия проекта)")
     ap.add_argument("--all", action="store_true", help="все сессии проекта сводно")
+    ap.add_argument("--provider", choices=("auto", "claude", "codex"), default="auto",
+                    help="источник: auto выбирает Codex при CODEX_THREAD_ID/SESSION_ID")
     ap.add_argument("--track", choices=sorted(TRACK_BUDGET), help="сверить с целью трека, exit 3 при перерасходе")
     ap.add_argument("--ctx-limit", type=int, default=None, metavar="N",
                     help="потолок контекста запроса главного потока, exit 3 при пробое; "
@@ -799,6 +1039,27 @@ def main() -> int:
 
     if args.selftest:
         return selftest()
+
+    provider = active_provider(args.provider)
+    if provider == "codex":
+        if args.session or args.all:
+            print("Codex: session и --all пока не поддержаны; доступна только текущая сессия по cwd",
+                  file=sys.stderr)
+            return obs.KOD_NE_RABOTAL
+        try:
+            rep = codex_report(os.getcwd())
+        except (NoCodexSessions, CorruptCodexSession) as exc:
+            print(f"Codex-сессия для cwd не найдена ({exc}) — ДАННЫХ НЕТ", file=sys.stderr)
+            return obs.KOD_NE_RABOTAL
+        if args.json:
+            rep["ctx_limit"] = args.ctx_limit if args.ctx_limit is not None else None
+            if args.track:
+                rep["track"] = args.track
+                rep["track_status"] = "informational_not_subscription_limit"
+            print(json.dumps(rep, ensure_ascii=False, indent=2))
+            rc = obs.KOD_NE_RABOTAL if args.ctx_limit is not None else obs.KOD_OK
+            return rc
+        return render_codex(rep, args.track, args.ctx_limit is not None)
 
     ctx_limit = args.ctx_limit
     if ctx_limit is None:
@@ -821,12 +1082,28 @@ def main() -> int:
             return obs.KOD_OSHIBKA
         rep = collect(path)
 
+    try:
+        limits = load_role_limits()
+        # ponytail: потолок задан на один прогон; --all не сверяет сумму истории.
+        # Путь апгрейда: отдельные вердикты каждой сессии, когда понадобится аудит истории.
+        rep["role_warnings"] = [] if args.all else role_warnings(rep["by_agent"], limits)
+    except (OSError, ValueError) as exc:
+        print(f"конфигурация лимитов ролей недоступна: {exc}", file=sys.stderr)
+        return obs.KOD_OSHIBKA
+
     if args.json:
         rep["ctx_limit"] = ctx_limit
+        if args.track:
+            if SUBSCRIPTION_ONLY:
+                rep["track_status"] = "informational_not_subscription_limit"
+            else:
+                rep["track_status"] = "enforced"
         print(json.dumps(rep, ensure_ascii=False, indent=2))
         rc = ctx_verdict(rep.get("max_ctx", 0), ctx_limit)[1]
-        if args.track:
+        if args.track and not SUBSCRIPTION_ONLY:
             rc = max(rc, track_verdict(args.track, tokens(rep["total"]))[1])
+        if any(w.startswith("СТОП:") for w in rep["role_warnings"]):
+            rc = max(rc, obs.KOD_STOP)
         return rc
     return render(rep, args.track, ctx_limit)
 

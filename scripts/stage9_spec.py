@@ -3585,15 +3585,12 @@ def check_marker_struktura():
 
 
 def check_budget_failclosed():
-    """9.16: сторож денег fail-closed — нечем измерить расход, значит стоп.
+    """9.16: подписочный autoloop не подменяет квоту USD-ledger-ом.
 
-    Проба 20.08.2026: `spent_money` возвращает None, когда прибор расхода
-    не отвечает, а проверка бюджета написана как `if spent is not None and …`.
-    При потолке $0.01 и сломанном ledger цикл прокрутил все итерации и вышел
-    «по потолку итераций» — сторож денег выключился молча. Конфигурация без
-    бюджета не стартует вовсе, а бюджет с неработающим прибором не действует:
-    заявленное не равно реальному. Владельцу это уже стоило $299 при потолке
-    $60. Деньги — не та ось, где догадка допустима: не измеряется — стой.
+    Активный контракт ограничен квотой подписки. Унаследованный `max_money`
+    допустим как stale-поле, но не участвует в решении; старый money ledger не
+    вызывается. Неизвестная квота не объявляется свободной: цикл сохраняет
+    собственные guard итераций, времени и no-progress.
     """
     al = tool("autoloop.py")
     if not al.is_file():
@@ -3604,7 +3601,7 @@ def check_budget_failclosed():
         (td / "scripts").mkdir()
         shutil.copy(al, td / "scripts" / "autoloop.py")
         (td / "cases").mkdir()
-        cfg = {"task": "проба бюджета", "stage": "9",
+        cfg = {"task": "проба подписочной квоты", "stage": "9",
                "guards": {"max_iterations": 3, "max_money": 0.01,
                           "wall_clock_seconds": 120, "no_progress_limit": 5,
                           "stop_when": "gate_green"},
@@ -3615,28 +3612,20 @@ def check_budget_failclosed():
                         '{"green": false, "fingerprint": "aaa", "fails": []}']}
         (td / "cfg.json").write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
 
-        def s_ledgerom(telo: str):
-            (td / "scripts" / "token_ledger.py").write_text(telo, encoding="utf-8")
-            return py(td / "scripts" / "autoloop.py", "cfg.json", cwd=td, timeout=300)
-
-        # Ось пропуска: прибор расхода мертв, потолок назначен — молчать нельзя.
-        code, out = s_ledgerom("import sys\nsys.exit(1)\n")
-        if "расход" not in out and "измер" not in out and "ledger" not in out.lower():
-            fails.append(("budget:failopen", f"прибор расхода недоступен, а цикл "
-                          f"домолотил до потолка итераций и о деньгах не сказал: "
-                          f"сторож бюджета выключается молча — ровно так проезжают "
-                          f"потолок ({out.strip()[-160:]})"))
-        # Та же ось иначе: прибор отвечает мусором вместо числа.
-        code, out = s_ledgerom("print('не json')\n")
-        if "расход" not in out and "измер" not in out and "ledger" not in out.lower():
-            fails.append(("budget:musor", "вердикт прибора расхода не разобран, "
-                          "а цикл продолжил: неразобранный расход обязан быть стопом, "
-                          "как неразобранный вердикт гейта"))
-        # Ось обихода: прибор жив и расход мал — цикл работает, о деньгах молчит.
-        code, out = s_ledgerom('import json\nprint(json.dumps({"money": 0.0}))\n')
+        called = td / "money-ledger-called"
+        (td / "scripts" / "token_ledger.py").write_text(
+            f"from pathlib import Path; Path({str(called)!r}).write_text('called')\n"
+            "raise SystemExit('USD ledger must not be called')\n", encoding="utf-8")
+        code, out = py(td / "scripts" / "autoloop.py", "cfg.json", cwd=td, timeout=300)
         if "потолок итераций" not in out:
-            fails.append(("budget:trevoga", f"рабочий прибор и нулевой расход "
-                          f"остановили цикл: {out.strip()[-160:]}"))
+            fails.append(("budget:subscription-stop", f"stale max_money изменил решение "
+                          f"или неизвестная квота объявлена свободной: {out.strip()[-180:]}"))
+        if called.exists():
+            fails.append(("budget:money-ledger-called", "подписочный цикл вызвал старый "
+                          "долларовый token_ledger вместо собственных guard"))
+        if re.search(r"бюджет исчерпан|в пределах|хватает", out, re.I):
+            fails.append(("budget:unknown-quota-free", "неизвестная подписочная квота "
+                          "выдана за свободную по старому денежному сообщению"))
     return fails
 
 
@@ -4729,6 +4718,8 @@ ZOLOTOY_ISK_MD = """# ИСКОВОЕ ЗАЯВЛЕНИЕ
 
 01.02.2026 между сторонами заключен договор поставки. Оплата не произведена.
 
+Срок оплаты истек, обязательство не исполнено, требования заявлены в пределах срока исковой давности. Ответчик получил требование об оплате, однако задолженность добровольно не погасил. Обстоятельства подтверждаются: Приложение 1 содержит договор поставки.
+
 Прошу взыскать 100 000 (сто тысяч) рублей задолженности (ст. 309 ГК РФ).
 
 | Основание | Сумма |
@@ -4750,6 +4741,7 @@ b.add_header_table('Вахитовский районный суд города 
                    'А65-12345/2026')
 b.add_title('ИСКОВОЕ ЗАЯВЛЕНИЕ')
 b.add_body('01.02.2026 между сторонами заключен договор поставки. Оплата не произведена.')
+b.add_body('Срок оплаты истек, обязательство не исполнено, требования заявлены в пределах срока исковой давности. Ответчик получил требование об оплате, однако задолженность добровольно не погасил. Обстоятельства подтверждаются: Приложение 1 содержит договор поставки.')
 b.add_body('Прошу взыскать 100 000 (сто тысяч) рублей задолженности (ст. 309 ГК РФ).')
 b.add_table(['Основание', 'Сумма'],
             [['Долг', '100 000 (сто тысяч) руб.'], ['Проценты', '5 000 (пять тысяч) руб.']])
@@ -4785,11 +4777,25 @@ def check_zolotoy_isk():
         td = Path(tmp)
         delo = td / "cases" / FAM_LAT / "delo-2026"
         drafts, gotovo = delo / ".agent" / "drafts", delo / "GOTOVO"
+        working = delo / ".agent" / "context" / "_working"
         drafts.mkdir(parents=True)
         gotovo.mkdir(parents=True)
+        working.mkdir(parents=True)
+        (working / "review-source.md").write_text(
+            "Синтетический источник проверки: договор поставки от 01.02.2026; "
+            "повторная ссылка 01.02.2026. Задолженность 100 000 рублей и "
+            "100 000 рублей; проценты 5 000 рублей.\n", encoding="utf-8")
+        (working / "quality_gate.json").write_text(
+            '{"version": 1, "rules": []}\n', encoding="utf-8")
+        (working / "quality_gate.suppressions.jsonl").write_text("", encoding="utf-8")
         md = drafts / "isk.md"
         md.write_text(ZOLOTOY_ISK_MD, encoding="utf-8")
-        code, out = py(vd, str(md), "--record", "--verdict", "ГОТОВ К ПОДАЧЕ", cwd=td)
+        code, out = py(vd, "--preflight", str(md), cwd=td)
+        if code != 0:
+            return [("zolotoy:preflight", f"настоящий иск не прошел preflight: "
+                     f"{out.strip()[-220:]}")]
+        code, out = py(vd, str(md), "--record", "--verdict", "ГОТОВ К ПОДАЧЕ",
+                       "--source", "doc-reviewer", cwd=td)
         if code != 0 or "НЕ ЗАПИСАН" in out:
             return [("zolotoy:verdikt", f"настоящий иск не получил вердикт: "
                      f"{out.strip()[-220:]}")]
@@ -5695,7 +5701,7 @@ def _cikl_sandbox(td, roles, guards=None, gate=None, ledger=None):
         "task": "проба изоляции",
         "stage": "9",
         "isolation_worktree": True,
-        "guards": guards or {"max_iterations": 1, "max_money": 100.0,
+        "guards": guards or {"max_iterations": 1,
                              "wall_clock_seconds": 60, "no_progress_limit": 1,
                              "stop_when": "gate_green"},
         "roles": roles,
@@ -5714,7 +5720,7 @@ def _cikl_run(td, kod, timeout=300):
 
 
 def check_izolyaciya_i_potolki():
-    """9.22: изоляция дается каждой роли; потолки времени и денег честны.
+    """9.22: изоляция дается каждой роли; time/no-progress guard честны.
 
     Круг 9, воспроизведено запуском координатора.
 
@@ -5728,10 +5734,9 @@ def check_izolyaciya_i_potolki():
         после гейта: прогон законно переезжает потолок во столько раз, сколько
         ролей. Таймаут роли обязан быть ОСТАТКОМ бюджета, а проверка времени —
         стоять перед каждым шагом.
-      · БАЗА РАСХОДА берется fail-open (`spent_money(root) or 0.0`): молчащий
-        прибор дает базу 0, и первый же успешный замер объявляется тратой
-        цикла — ночной прогон умирает с обвинением в трате, которой не было.
-        В середине цикла тот же прибор уже fail-closed: асимметрия.
+      · СТАРЫЙ USD-ledger не является LoopGuard подписочного профиля: stale
+        `max_money` не должен читаться, а `money=None` нельзя превращать в 0.
+        Квота подписки неизвестна этому прибору и не объявляется свободной.
       · WORKTREE_ADD судит по «каталог есть», а не «это рабочая копия»: в
         обычном каталоге под .autoloop/worktrees git находит ОСНОВНОЙ
         репозиторий, и `git reset --hard` + `git checkout -B` сносят
@@ -5752,11 +5757,11 @@ def check_izolyaciya_i_potolki():
             roles.append({"name": nm, "kind": kind, "parallel": par, "argv":
                           ["sh", "-c", f'pwd > "{sled}/cwd_{nm}.txt"; '
                                        f'ls cases > "{sled}/ls_{nm}.txt" 2>&1']})
+        called = td / "money-ledger-called"
         cfg = _cikl_sandbox(td, roles, ledger=(
-            'import json, os\n'
-            'open(os.path.join(os.environ.get("SLED", "."), "..", "uchet.txt"), "a").write('
-            'os.getcwd() + "\\n")\n'
-            'print(json.dumps({"money": 0.0}))\n'))
+            'from pathlib import Path\n'
+            f'Path({str(called)!r}).write_text("called")\n'
+            'raise SystemExit("USD ledger must not be called")\n'))
         (td / "cfg.json").write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
         code, out = _cikl_run(td, "import json; al.loop(json.load(open('cfg.json')))")
         if "Traceback" in out:
@@ -5774,16 +5779,9 @@ def check_izolyaciya_i_potolki():
                 fails.append((f"cikl:cases-{nm}", f"роль `{nm}` видит каталог дел из "
                               f"своего рабочего каталога — материалы доверителей обязаны "
                               f"быть вне досягаемости роли"))
-        # Денежный сторож обязан считать расход РОЛЕЙ, а роли живут в рабочих
-        # копиях: прибор учета, позванный только в корне, видит чужую сессию и
-        # не видит ту, в которую роль потратила деньги.
-        uchet = (td / "uchet.txt").read_text(encoding="utf-8") if (td / "uchet.txt").is_file() else ""
-        if uchet and "worktrees" not in uchet:
-            fails.append(("cikl:uchet-worktree", "прибор учета расхода зовется только в "
-                          "корне: рабочие копии ролей, где роли и тратят, в счет не "
-                          "попадают — денежный LoopGuard судит по чужой сессии. Считать "
-                          "надо по СПИСКУ каталогов прогона (корень плюс рабочая копия "
-                          "каждой роли), а не по «свежему файлу»"))
+        if called.exists():
+            fails.append(("cikl:money-ledger", "подписочный цикл вызвал старый "
+                          "долларовый token_ledger из рабочей копии роли"))
 
     # 2. Потолок времени — потолок ПРОГОНА, а не каждой роли.
     with tempfile.TemporaryDirectory(prefix="stage9-vremya-") as tmp:
@@ -5792,7 +5790,7 @@ def check_izolyaciya_i_potolki():
                   "argv": ["sh", "-c", "sleep 5"]}
                  for i, k in enumerate(("generator", "reviewer", "reviewer"))]
         cfg = _cikl_sandbox(td, roles, guards={
-            "max_iterations": 2, "max_money": 100.0, "wall_clock_seconds": 3,
+            "max_iterations": 2, "wall_clock_seconds": 3,
             "no_progress_limit": 2, "stop_when": "gate_green"},
             gate=["sh", "-c", 'echo \'{"green": false, "fails": [{"id":"x","text":"y"}], '
                               '"fingerprint": "z"}\''])
@@ -5808,37 +5806,7 @@ def check_izolyaciya_i_potolki():
                           f"быть ОСТАТКОМ бюджета, а проверка времени стоять перед "
                           f"каждым шагом"))
 
-    # 3. База расхода fail-closed.
-    with tempfile.TemporaryDirectory(prefix="stage9-dengi-") as tmp:
-        td = Path(tmp)
-        schet = td / "schet"
-        ledger = ('import json, os\n'
-                  f'n = {str(schet)!r}\n'
-                  'k = int(open(n).read()) if os.path.exists(n) else 0\n'
-                  'open(n, "w").write(str(k + 1))\n'
-                  'if k == 0:\n'
-                  '    raise SystemExit(1)\n'
-                  'print(json.dumps({"money": 500.0}))\n')
-        roles = [{"name": "a", "kind": "generator", "parallel": True,
-                  "argv": ["sh", "-c", "true"]},
-                 {"name": "b", "kind": "reviewer", "parallel": False,
-                  "argv": ["sh", "-c", "true"]}]
-        cfg = _cikl_sandbox(td, roles, guards={
-            "max_iterations": 1, "max_money": 1.0, "wall_clock_seconds": 60,
-            "no_progress_limit": 1, "stop_when": "gate_green"}, ledger=ledger,
-            gate=["sh", "-c", 'echo \'{"green": false, "fails": [{"id":"x","text":"y"}], '
-                              '"fingerprint": "z"}\''])
-        (td / "cfg.json").write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
-        _cikl_run(td, "import json; al.loop(json.load(open('cfg.json')))")
-        zh = td / ".autoloop" / "journal.jsonl"
-        text = zh.read_text(encoding="utf-8") if zh.is_file() else ""
-        if "бюджет исчерпан" in text or "исчерпан" in text:
-            fails.append(("cikl:baza-dengi", "прибор не смог измерить базу расхода, база "
-                          "взята нулем, и первый же успешный замер объявлен тратой цикла: "
-                          "прогон остановлен обвинением в трате, которой не было. "
-                          "База обязана быть fail-closed так же, как замер в середине"))
-
-    # 4. worktree_add не трогает основное дерево.
+    # 3. worktree_add не трогает основное дерево.
     with tempfile.TemporaryDirectory(prefix="stage9-wt-") as tmp:
         td = Path(tmp)
         _cikl_sandbox(td, [])
@@ -5963,7 +5931,7 @@ def _reg_file(td, imya="codex", extra=None):
 
 
 def check_cli_i_budget_krug9():
-    """9.22: сторож чужих CLI fail-closed, тождество шире имени, деньги честны.
+    """9.22: сторож чужих CLI fail-closed, тождество шире имени, подписка честна.
 
     Круг 9, воспроизведено запуском координатора.
 
@@ -5975,12 +5943,10 @@ def check_cli_i_budget_krug9():
         различает), `node …/codex.js exec` и `npx --yes @openai/codex exec`
         ведут к тому же инструменту и проходят мимо блока; ловится только
         `codex exec`. Заплата словом вместо признака инструмента.
-      · ДЕНЬГИ FAIL-OPEN. Одна оборванная запись в журнале сессии — и
-        budget_preflight объявляет потраченное нулем: «$700 остатка → хватает»
-        вместо «не хватает». Неизвестный расход хуже известного большого.
-      · ГЕЙТ-ПУСТЫШКА. Документированная форма вызова (`--track FULL` без
-        `--limit`) не возвращает 3 ни при каком расходе: штатный вызов всегда
-        зеленый.
+      · ПОДПИСКА НЕ ПОДМЕНЯЕТСЯ USD. Для активного Codex-провайдера
+        budget_preflight не читает старый Claude ledger, не считает `money=None`
+        нулем и явно называет квоту поставщика неизмеренной, не объявляя ее
+        свободной.
       · МАРКЕРЫ ОТКАЗА ПОДСТРОКОЙ. Содержательный правовой вывод со словами
         «Судебная ошибка:» объявляется отказом провайдера, и работа охотника
         выбрасывается. Отказ судится структурой (код возврата, начало строки
@@ -5997,6 +5963,8 @@ def check_cli_i_budget_krug9():
             td = Path(tmp) / "scripts"
             td.mkdir(parents=True)
             shutil.copy2(cg, td / "claude_guard.py")
+            # Проверяем отказ реестра, не падение обязательного импорта guard.
+            shutil.copy2(tool("sreda.py"), td / "sreda.py")
             payload = json.dumps({"tool_name": "Bash", "tool_input":
                                   {"command": 'codex exec "материалы дела"'}},
                                  ensure_ascii=False)
@@ -6028,39 +5996,38 @@ def check_cli_i_budget_krug9():
                                   f"«{name}» прошел мимо блока: {cmd} — тождество "
                                   f"описано одним словом, а файловая система регистр не "
                                   f"различает и точка входа у пакета своя"))
-    # 3-4. Деньги: битая запись и вызов без --limit.
+    # 3. Подписка: старый Claude/USD ledger не является источником решения.
     bp = tool("budget_preflight.py")
-    if bp.is_file():
+    tl = tool("token_ledger.py")
+    if bp.is_file() and tl.is_file():
         with tempfile.TemporaryDirectory(prefix="stage9-bp-") as tmp:
             home = Path(tmp)
+            shutil.copy2(bp, home / "budget_preflight.py")
+            shutil.copy2(tl, home / "token_ledger.py")
+            obshee = tool("_obshee.py")
+            if obshee.is_file():
+                shutil.copy2(obshee, home / "_obshee.py")
             klyuch = re.sub(r"[^A-Za-z0-9]", "-", str(ROOT))
-            proj = home / ".claude" / "projects" / klyuch
-            proj.mkdir(parents=True)
-            zapis = {"type": "assistant", "requestId": "r1", "message": {
-                "model": "claude-opus-5", "usage": {
-                    "input_tokens": 40000000, "output_tokens": 0,
-                    "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}}}
-            ses = proj / "s.jsonl"
-            ses.write_text(json.dumps(zapis) + "\n", encoding="utf-8")
-            env = dict(os.environ, HOME=str(home))
-            code_do, out_do = py(bp, "--track", "FULL", "--limit", "700", env=env)
-            ses.write_text(json.dumps(zapis) + "\n" + json.dumps(["битая", "запись"]) + "\n",
-                           encoding="utf-8")
-            code_posle, out_posle = py(bp, "--track", "FULL", "--limit", "700", env=env)
-            if code_do != code_posle:
-                fails.append(("cli9:dengi-bityy", f"одна оборванная запись в журнале "
-                              f"обнулила потраченное: до нее код {code_do}, после — "
-                              f"{code_posle} ({out_posle.strip()[-160:]}). Неизвестный "
-                              f"расход хуже известного большого: разбор обязан "
-                              f"пропускать битую ЗАПИСЬ, а не весь файл, и на "
-                              f"неизвестном расходе отказывать"))
-            code, out = py(bp, "--track", "FULL", env=env)
-            if code == 0 and "лимит" in out.lower():
-                fails.append(("cli9:dengi-bez-limita", f"документированная форма вызова "
-                              f"(--track FULL без --limit) зелена при любом расходе: "
-                              f"{out.strip()[-160:]} — гейт, который нельзя не пройти, "
-                              f"гейтом не является; умолчание лимита обязано быть в "
-                              f"одном месте политики"))
+            stale = home / ".claude" / "projects" / klyuch
+            stale.mkdir(parents=True)
+            (stale / "old.jsonl").write_text(
+                json.dumps({"type": "assistant", "requestId": "stale",
+                            "message": {"model": "claude-opus-5", "usage": {
+                                "input_tokens": 40000000, "output_tokens": 0,
+                                "cache_creation_input_tokens": 0,
+                                "cache_read_input_tokens": 0}}}) + "\n",
+                encoding="utf-8")
+            env = dict(os.environ, HOME=str(home), CODEX_THREAD_ID="synthetic-codex",
+                       CODEX_SESSION_ID="")
+            code, out = py(home / "budget_preflight.py", "--track", "FULL",
+                           "--limit", "0.01", cwd=home, env=env)
+            if code != 0 or "квота поставщика не измерена" not in out.lower():
+                fails.append(("cli9:subscription-budget", f"Codex preflight не применил "
+                              f"subscription-only контракт без USD-гейта: код {code}, "
+                              f"вывод {out.strip()[-180:]}"))
+            if "хватает" in out.lower() or "в пределах" in out.lower():
+                fails.append(("cli9:subscription-free", "неизвестная подписочная квота "
+                              "объявлена свободной через старую долларовую пробу"))
     # 5. Маркеры отказа судятся структурой.
     fc = tool("foreign_cli.py")
     if fc.is_file():
@@ -6128,13 +6095,12 @@ def check_cli_i_budget_krug9():
 
 
 def check_model_policy_i_pin():
-    """9.22: политика моделей и пин в frontmatter агента не противоречат друг другу.
+    """9.22: политика моделей и Codex role не противоречат друг другу.
 
     Круг 9, воспроизведено запуском координатора. Бриф, честно называющий
     модель, с которой агент реально запускается, сверку НЕ проходит:
-    practice-hunter-skeptic запинен в своем frontmatter на opus, CLAUDE.md
-    относит скептика-координатора к Opus, а политика на L3 требует sonnet и
-    объявляет правдивый план перерасходом.
+    practice-hunter-skeptic закреплен в Codex role на Sol. Если policy потребует
+    другое, правдивый бриф получит ложный отказ.
 
     Две копии одной правды разошлись, и наказан тот, кто написал правду. Такой
     гейт учит писать в бриф не то, что будет, — а это и есть его отмена.
@@ -6142,11 +6108,11 @@ def check_model_policy_i_pin():
     mp = tool("model_policy.py")
     if not mp.is_file():
         return [("policy:missing", "scripts/model_policy.py отсутствует")]
-    agent = ROOT / ".claude" / "agents" / "practice-hunter-skeptic.md"
+    agent = ROOT / ".codex" / "agents" / "practice-hunter-skeptic.toml"
     if not agent.is_file():
         return []
     txt = agent.read_text(encoding="utf-8", errors="ignore")
-    m = re.search(r"^model:\s*([A-Za-z0-9._-]+)", txt, re.M)
+    m = re.search(r'^model\s*=\s*"([A-Za-z0-9._-]+)"', txt, re.M)
     if not m:
         return []
     pin = m.group(1).strip()
@@ -6159,7 +6125,7 @@ def check_model_policy_i_pin():
         code, out = py(mp, "--brief", str(b))
         if code != 0:
             fails.append(("policy:protivorechie", f"бриф, назвавший ту модель, на которую "
-                          f"агент запинен в своем frontmatter ({pin}), сверку не прошел: "
+                          f"агент закреплен в Codex role ({pin}), сверку не прошел: "
                           f"{out.strip()[-200:]} — политика и пин обязаны быть одной "
                           f"правдой, иначе гейт учит писать в бриф не то, что будет"))
     return fails

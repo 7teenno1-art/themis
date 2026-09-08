@@ -1,0 +1,18 @@
+Edit the provided Russian Themiz workflow diagram (first reference). Deliver ONE finished wide landscape PNG, 16:9 composition, at least 1600 by 900 pixels (prefer 1920 by 1080). This is an editorial process diagram made of real sculpted marble objects in the Pantheon visual family, NOT a software interface or screenshot.
+
+Reference roles, in order: 1 old diagram to correct; 2 Pantheon style anchor, materials and light ONLY, do not use Athena identity; 3 exact family column; 4 Themiz/Themis character bible; 5 prop bible. Preserve the coherent white Carrara marble, warm daylight ivory background, diffuse light from upper left, softly veined stone, satin antique gold, delicate pale blue connector material. Themis stays blindfolded, with balanced gold scales HELD by her raised hand and a lowered marble-blade sword with gold fittings. No helmet, no owl. A single real column and smaller Themis statue stand in the left margin. No upper headline, no UI chrome, no chart axes, no decoration that resembles controls.
+
+IMPORTANT CHANGES:
+1. Replace the old confusing branching with an exact SEQUENTIAL seven-step flow. Seven broad, nearly front-facing rectangular marble plaques on the right, in two rows. Top row from left to right: plaque 1, plaque 2, plaque 3, plaque 4. Bottom row from LEFT to RIGHT: plaque 7, plaque 6, plaque 5. A small gold folder on the left feeds ONLY plaque 1. Explicit pale-blue arrows: folder -> 1 -> 2 -> 3 -> 4, then from 4 a neat bend DOWN into 5, then leftward arrows 5 -> 6 -> 7. Every arrow has a visible arrowhead at its destination. No folder-to-bottom shortcut, no branch, no loop, no connection from 7 back to input. Nothing crosses. The diagram must communicate the ordering even in a small README preview.
+2. On each plaque put a modest Arabic numeral above a LARGE readable uppercase Russian inscription. Exact text, no extra words, one occurrence each:
+1 / ПРИЕМ
+2 / ЧТЕНИЕ
+3 / КАРТА ДЕЛА
+4 / ПРАКТИКА
+5 / АРЕОПАГ
+6 / ДОКУМЕНТ
+7 / ЗАСЕДАНИЕ
+Use thick classical serif inscription lettering, excellent correct Cyrillic, clean line breaks only if essential. Put 5 on bottom RIGHT, 6 at bottom center, 7 at bottom LEFT.
+3. MOST IMPORTANT lettering finish: actual INCISED / INTAGLIO V-cut lettering, cut DOWN into the stone, with clearly visible beveled inside walls and inner shadow. Warm rich antique GOLD PAINT rubbed into the INNER FLOOR AND INNER SLOPES of each carved letter and numeral; subtle brush texture within the recess only. Gold must be richly colored enough to make all letters immediately readable. Keep clean marble outside letter strokes. Preserve tactile depth and stone-edge highlights. This is gilded engraved stone: NOT embossed or raised letters, NOT flat digitally overlaid gold text, NOT pale gray-on-white letters, NOT blurry/illegible distressed type. Contrast and legibility have priority over delicate faint styling.
+4. Make the seven plaques and their inscriptions occupy most of the image, wide enough for Cyrillic. Less empty top margin than the old image. Themis and column subordinate to the readable diagram. Keep diagram camera near frontal with a slight elevated view for plaque depth. All physical objects supported on a continuous marble surface, grounded shadows. Clean restrained premium Pantheon art direction.
+Recheck exact seven labels and arrow chain before finishing.

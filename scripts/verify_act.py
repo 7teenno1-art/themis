@@ -44,11 +44,12 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FETCH = os.path.join(ROOT, "scripts", "fetch_url.sh")
-CACHE = os.path.expanduser("~/.cache/legal_acts")
+CACHE = os.path.join(os.environ.get("TMPDIR") or os.path.expanduser("~/.cache"), "legal_acts")
 
 PARSER_VERSION = "2026.08.02"
 MIN_PAGE_BYTES = 2000  # меньше — это страница ошибки, кешировать ее нельзя
@@ -215,7 +216,15 @@ def fetch(url: str, dest: str) -> str:
     """
     if os.path.exists(dest) and os.path.getsize(dest) > MIN_PAGE_BYTES:
         return "cached"
-    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    cache_dir = os.path.dirname(dest)
+    try:
+        os.makedirs(cache_dir, exist_ok=True)
+        with tempfile.TemporaryFile(dir=cache_dir):
+            pass
+    except OSError as exc:
+        raise SystemExit(
+            f"verify_act: каталог кеша недоступен для записи: {cache_dir}: "
+            f"{exc.strerror or exc}") from None
     tmp = dest + ".tmp"
     try:
         r = subprocess.run(["bash", FETCH, url, tmp], capture_output=True, timeout=60)
@@ -430,6 +439,9 @@ def main() -> int:
 def demo() -> None:
     """Самопроверка без сети. Покрывает и разбор, и сборку URL — прежняя версия
     падала именно на URL, а demo его не трогал и потому проходил."""
+    cache_root = os.environ.get("TMPDIR") or os.path.expanduser("~/.cache")
+    assert CACHE == os.path.join(cache_root, "legal_acts"), CACHE
+
     # 1. Дата акта против даты публикации — ровно та ловушка, что стоила совету двух рецензентов.
     sample = ("Главная Документы Судебные решения О разделе совместно нажитого имущества "
               "Верховный Суд РФ определение от 26.03.2019 № 81-КГ19-2 13.06.2019 | "
@@ -497,7 +509,7 @@ def demo() -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "--demo":
+    if len(sys.argv) > 1 and sys.argv[1] in ("--demo", "--selftest"):
         demo()
     else:
         sys.exit(main())

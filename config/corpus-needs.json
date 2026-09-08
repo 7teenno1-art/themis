@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "needs": [
+    {
+      "source": "https://www.consultant.ru/document/cons_doc_LAW_209690/",
+      "kind": "bylaw",
+      "title": "Приказ Судебного департамента при Верховном Суде РФ от 27.12.2016 N 251 \"Об утверждении Порядка подачи в федеральные суды общей юрисдикции документов в электронном виде, в том числе в форме электронного документа\"",
+      "date": "27.12.2016",
+      "number": "251",
+      "slug": "prikaz-sudebnogo-departamenta-251"
+    }
+  ],
+  "reviews": [
+    {
+      "source": "https://www.vsrf.ru/media-proxy/upload/iblock/72e/mf3oof9f3pcdyzabd4f3k76jc0lc5rk8.pdf",
+      "title": "Обзор судебной практики Верховного Суда Российской Федерации № 1 (2024)",
+      "date": "29.05.2024",
+      "number": "1 (2024)",
+      "slug": "vsrf-review-1-2024"
+    }
+  ]
+}

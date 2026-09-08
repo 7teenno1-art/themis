@@ -38,6 +38,8 @@ _ITALIC = re.compile(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)")
 _LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 _NUMBERED = re.compile(r"^(\d+)[.)]\s+(.*)$")
 _BULLET = re.compile(r"^[-*·]\s+(.*)$")
+_TABLE_PIPE = re.compile(r"(?<!\\)\|")
+_TABLE_SEPARATOR = re.compile(r"^:?-{3,}:?$")
 
 
 def _clean(text):
@@ -57,23 +59,35 @@ def convert(md_path, docx_path):
     lines = Path(md_path).read_text(encoding="utf-8").splitlines()
     b = DocBuilder()
     title_done = False
-    in_table = False
+    table_lines = []
+
+    def flush_table():
+        if not table_lines:
+            return
+        rows = [[_clean(cell).replace(r"\|", "|")
+                 for cell in _TABLE_PIPE.split(line[1:-1])]
+                for line in table_lines]
+        # ponytail: потолок - 2 колонки по REQ-15; снять проверку для широких таблиц.
+        if (len(rows) >= 3 and all(len(row) == 2 for row in rows)
+                and all(_TABLE_SEPARATOR.fullmatch(cell) for cell in rows[1])):
+            b.add_table(rows[0], rows[2:])
+        else:
+            for row in rows:
+                if all(_TABLE_SEPARATOR.fullmatch(cell) for cell in row):
+                    continue
+                b.add_body([(" — ".join(cell for cell in row if cell), False)])
+        table_lines.clear()
 
     for raw in lines:
         line = raw.rstrip()
-        if not line.strip():
+        stripped = line.strip()
+        if stripped.startswith("|") and stripped.endswith("|"):
+            table_lines.append(stripped)
             continue
+        flush_table()
 
-        # таблицы markdown разбирать не пытаемся: строки идут абзацами,
-        # владелец правит вручную. ponytail: таблиц в обращениях почти нет.
-        if line.lstrip().startswith("|"):
-            if set(line.replace("|", "").strip()) <= set("-: "):
-                in_table = True
-                continue
-            cells = [c.strip() for c in line.strip().strip("|").split("|")]
-            b.add_body([(_clean(" — ".join(c for c in cells if c)), False)])
+        if not stripped:
             continue
-        in_table = False
 
         if line.startswith("---") or line.startswith("***") or line.lstrip().startswith("<!--"):
             continue
@@ -111,6 +125,7 @@ def convert(md_path, docx_path):
             continue
         b.add_body([(text, False)])
 
+    flush_table()
     b.add_page_numbers()
     Path(docx_path).parent.mkdir(parents=True, exist_ok=True)
     b.save(str(docx_path))
@@ -308,15 +323,23 @@ def _batch(src_dir, out_dir, plain=False):
 
 
 def _selftest():
-    """Минимальный чек: заголовок, пункт и абзац доходят до .docx непустыми."""
+    """Минимальный чек: текст и таблица доходят до .docx."""
     import tempfile
+    from docx import Document
     with tempfile.TemporaryDirectory() as tmp:
         md = Path(tmp) / "t.md"
-        md.write_text("# Заголовок\n\n## Раздел\n\n1. Первый пункт\n\nОбычный абзац.\n",
-                      encoding="utf-8")
+        md.write_text(
+            "# Заголовок\n\n## Раздел\n\n1. Первый пункт\n\nОбычный абзац.\n\n"
+            "| Поле | Значение |\n| --- | --- |\n| Номер | 42 |\n",
+            encoding="utf-8",
+        )
         out = Path(tmp) / "t.docx"
         convert(md, out)
         assert out.exists() and out.stat().st_size > 5000, "docx пуст или не собран"
+        doc = Document(out)
+        assert len(doc.tables) == 1, "таблица markdown не перенесена в Word"
+        assert [[cell.text for cell in row.cells] for row in doc.tables[0].rows] == [
+            ["Поле", "Значение"], ["Номер", "42"]]
     print("selftest пройден")
     return 0
 

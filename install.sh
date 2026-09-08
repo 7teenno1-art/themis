@@ -3,6 +3,75 @@
 set -e
 cd "$(dirname "$0")"
 ROOT="$(pwd)"
+
+bootstrap_knowledge() {
+  DEFAULTS="$ROOT/config/knowledge-defaults"
+  KNOWLEDGE="$ROOT/knowledge"
+  # A public bootstrap must not follow a repo-relative parent into owner data.
+  if [ -L "$KNOWLEDGE" ] || { [ -e "$KNOWLEDGE" ] && [ ! -d "$KNOWLEDGE" ]; }; then
+    echo "  ✗ Небезопасный каталог knowledge: это не локальная директория репозитория" >&2
+    return 1
+  fi
+  if [ -L "$DEFAULTS" ]; then
+    echo "  ✗ Небезопасный каталог шаблонов: $DEFAULTS" >&2
+    return 1
+  fi
+  # Verify every template before creating any local skeleton.
+  for NAME in allowed-services.md redlines.md lessons-log.md practice_index.md; do
+    SOURCE="$DEFAULTS/$NAME"
+    if [ -L "$SOURCE" ] || [ ! -f "$SOURCE" ]; then
+      echo "  ✗ Нет безопасного шаблона: $SOURCE" >&2
+      return 1
+    fi
+  done
+  mkdir -p "$KNOWLEDGE"
+  for NAME in allowed-services.md redlines.md lessons-log.md practice_index.md; do
+    TARGET="$KNOWLEDGE/$NAME"
+    SOURCE="$DEFAULTS/$NAME"
+    # Existing files, including a dangling symlink, belong to this owner.
+    if [ -e "$TARGET" ] || [ -L "$TARGET" ]; then
+      continue
+    fi
+    cp "$SOURCE" "$TARGET" || return 1
+  done
+}
+
+podgotovit_pip_sredu() {
+  unset PIP_TARGET PIP_PREFIX PIP_ROOT PIP_USER PYTHONHOME PYTHONPATH PYTHONUSERBASE
+  export PIP_CONFIG_FILE=/dev/null
+  export PYTHONNOUSERSITE=1
+}
+
+proverit_localnyy_python() {
+  if [ ! -f "$THEMIZ_VENV/pyvenv.cfg" ]; then
+    echo "  ✗ Локальное окружение повреждено: нет $THEMIZ_VENV/pyvenv.cfg" >&2
+    return 1
+  fi
+  THEMIZ_PREFIXES="$("$THEMIZ_PYTHON" -c 'import os, sys, sysconfig; print(os.path.realpath(sys.prefix)); print(os.path.realpath(sys.base_prefix)); print(os.path.realpath(sysconfig.get_paths()["purelib"]))')" || {
+    echo "  ✗ Не удалось проверить локальное окружение: $THEMIZ_VENV" >&2
+    return 1
+  }
+  THEMIZ_PREFIX="${THEMIZ_PREFIXES%%$'\n'*}"
+  THEMIZ_REST="${THEMIZ_PREFIXES#*$'\n'}"
+  THEMIZ_BASE_PREFIX="${THEMIZ_REST%%$'\n'*}"
+  THEMIZ_SITE_PREFIX="${THEMIZ_REST#*$'\n'}"
+  THEMIZ_VENV_REAL="$(cd "$THEMIZ_VENV" && pwd -P)"
+  case "$THEMIZ_SITE_PREFIX" in "$THEMIZ_VENV_REAL"/*) ;; *)
+    echo "  ✗ Локальное окружение направляет пакеты вне репозитория" >&2
+    return 1
+  esac
+  if [ "$THEMIZ_PREFIX" != "$THEMIZ_VENV_REAL" ] || [ "$THEMIZ_PREFIX" = "$THEMIZ_BASE_PREFIX" ]; then
+    echo "  ✗ Python не использует локальное окружение: $THEMIZ_VENV" >&2
+    return 1
+  fi
+}
+
+# Testable no-network path for a public fresh clone; normal install calls it at step 5.
+if [ "${THEMIZ_BOOTSTRAP_KNOWLEDGE_ONLY:-}" = "1" ]; then
+  bootstrap_knowledge
+  exit $?
+fi
+
 . scripts/sreda.sh
 # Привет от автора. Язык — по локали системы: русская локаль → по-русски,
 # любая другая → по-английски. Первое, что видит человек, поставивший систему.
@@ -327,7 +396,9 @@ if [ "$THEMIZ_LANG" = "ru" ]; then
     echo "  видео. Не работаешь с аудио — можно пропустить."
     echo ""
   fi
-  echo "  Все ставится к тебе на компьютер. Наружу ничего не уходит."
+  echo "  Инструменты ставятся локально; пакеты загружаются из сети."
+  echo "  Извлечение текста и OCR выполняются на твоем компьютере."
+  echo "  Текст, который ты передаешь агенту, обрабатывает поставщик модели."
   echo ""
   printf "  Ставлю? [Enter — да, n — отмена]: "
 else
@@ -355,7 +426,9 @@ else
     echo "  video. Skip it if you never work with recordings."
     echo ""
   fi
-  echo "  Everything is installed on your own computer. Nothing goes out."
+  echo "  Tools are installed locally; packages are downloaded from the network."
+  echo "  Text extraction and OCR run on your computer."
+  echo "  Text you send to an agent is processed by its model provider."
   echo ""
   printf "  Install? [Enter — yes, n — cancel]: "
 fi
@@ -450,58 +523,89 @@ pereezd_prezhnego "$HOME/.cache/$IMYA_PREZHNEE" "$HOME/.cache/themiz"
 # ── 1. Python-зависимости ────────────────────────────────────────────────────
 echo ""
 echo "[1/7] Python-пакеты…"
-PIP="pip3"
+THEMIZ_VENV="$ROOT/.venv"
+if [ -n "${VIRTUAL_ENV:-}" ] && [ "$VIRTUAL_ENV" != "$THEMIZ_VENV" ]; then
+  # Внешний runner не должен определять, куда попадут зависимости Themiz.
+  PATH="${PATH#"$VIRTUAL_ENV/bin:"}"
+  unset VIRTUAL_ENV
+fi
+if [ -L "$THEMIZ_VENV" ] || { [ -e "$THEMIZ_VENV" ] && [ ! -d "$THEMIZ_VENV" ]; }; then
+  echo "  ✗ Небезопасный путь локального окружения: $THEMIZ_VENV" >&2
+  exit 1
+fi
+podgotovit_pip_sredu
+if [ ! -x "$THEMIZ_VENV/bin/python" ]; then
+  python3 -m venv "$THEMIZ_VENV" || {
+    echo "  ✗ Не удалось создать локальное окружение: $THEMIZ_VENV" >&2
+    exit 1
+  }
+fi
+THEMIZ_PYTHON="$THEMIZ_VENV/bin/python"
+if ! proverit_localnyy_python; then
+  exit 1
+fi
+export VIRTUAL_ENV="$THEMIZ_VENV"
+export PATH="$THEMIZ_VENV/bin:$PATH"
 # Состав объявлен ОДИН раз — в requirements.txt, который собирается с диска
 # (python3 scripts/setup_doctor.py --licenses) из фактических импортов приборов.
 # Раньше список жил здесь руками и расходился с составом в обе стороны: четыре
 # живых зависимости не ставились вовсе, а AGPL-пакет ехал незамеченным (M11).
 # Предел на шаг пакетов. На машине без кеша pip идет в сеть за десятками
-# мегабайт, и на чистом доме это дольше, чем ждет любой внешний прогон
-# (изолированный прогон ворот публикации убивает установщик на 180 секундах).
+# мегабайт. На холодную установку зависимостей Themiz отведено 10 минут,
+# на полный установщик — 15 минут в .github/isolated-run.json.
 # Висящий установщик хуже отказавшего: снаружи он неотличим от поломки, и
 # человек не узнает ни причины, ни обхода. Поэтому шаг сам себя ограничивает
 # по времени и сам объясняет, что делать. Предел меняется THEMIZ_PIP_PREDEL.
-PIP_PREDEL="${THEMIZ_PIP_PREDEL:-100}"
-# Предел общий на ВСЕ попытки: их четыре, и по отдельному пределу на каждую
-# шаг все равно уезжал за десять минут (замер 07.09.2026).
+PIP_PREDEL="${THEMIZ_PIP_PREDEL:-600}"
+# Единственная попытка идет только в локальный .venv: повторный запуск продолжит
+# ее там же, не затрагивая системный Python.
 PIP_KRAY=$(( $(date +%s) + PIP_PREDEL ))
 pip_s_predelom() {
   ostalos=$(( PIP_KRAY - $(date +%s) ))
   [ "$ostalos" -le 0 ] && return 124
+  metka="$(mktemp "${TMPDIR:-/tmp}/themiz-pip-timeout.XXXXXX")" || return 1
+  rm -f "$metka"
   "$@" &
   pip_pid=$!
-  ( sleep "$ostalos"; kill -TERM "$pip_pid" 2>/dev/null ) &
+  ( sleep "$ostalos"; : > "$metka"; kill -TERM "$pip_pid" 2>/dev/null ) &
   storozh=$!
   wait "$pip_pid" 2>/dev/null; kod=$?
   kill -TERM "$storozh" 2>/dev/null
+  wait "$storozh" 2>/dev/null || true
+  if [ -e "$metka" ]; then
+    rm -f "$metka"
+    return 124
+  fi
   return "$kod"
 }
-pip_s_predelom $PIP install --quiet -r requirements.txt 2>/dev/null || \
-pip_s_predelom $PIP install --quiet --user -r requirements.txt 2>/dev/null || \
-pip_s_predelom $PIP install --quiet --break-system-packages -r requirements.txt 2>/dev/null || \
-pip_s_predelom $PIP install -r requirements.txt
+PIP_RC=0
+pip_s_predelom "$THEMIZ_PYTHON" -m pip install --isolated --quiet --disable-pip-version-check -r requirements.txt || PIP_RC=$?
+if [ "$PIP_RC" = "124" ]; then
+  echo "  ✗ Локальная установка пакетов не уложилась в ${PIP_PREDEL} с." >&2
+  echo "    Повторить с большим пределом: THEMIZ_PIP_PREDEL=900 bash install.sh" >&2
+  exit 1
+fi
+if [ "$PIP_RC" -ne 0 ]; then
+  echo "  ✗ pip остановился с кодом $PIP_RC; глобальные пакеты не менялись." >&2
+  echo "    Исправь ошибку pip выше и повтори bash install.sh." >&2
+  exit 1
+fi
 # ПРОВЕРЯЕМ ПО ФАКТУ, а не по коду pip. На чужой машине системный Python бывает
 # «externally managed» (PEP 668): pip отказывает, а установщик печатал галочку и
 # шел дальше - изолированный прогон 03.09.2026 поймал ровно это, PIL не появился,
 # и sign_and_pdf падал уже у человека. Тихий отказ хуже честного красного.
 NEDOSTAET=""
 for M in fitz PIL docx yaml fastapi reportlab pypdfium2 pypdf; do
-  python3 -c "import $M" 2>/dev/null || NEDOSTAET="$NEDOSTAET $M"
+  "$THEMIZ_PYTHON" -c "import $M" 2>/dev/null || NEDOSTAET="$NEDOSTAET $M"
 done
 if [ -n "$NEDOSTAET" ]; then
   echo ""
   if [ "$THEMIZ_LANG" = "ru" ]; then
     echo "  ✗ Пакеты не встали:$NEDOSTAET"
-    echo "    Либо сеть медленная и шаг уперся в предел ${PIP_PREDEL} с:"
-    echo "      THEMIZ_PIP_PREDEL=600 bash install.sh"
-    echo "    Похоже, системный Python защищен (PEP 668). Обходные пути:"
-    echo "      python3 -m venv .venv && . .venv/bin/activate && bash install.sh"
-    echo "      либо  pip3 install --user -r requirements.txt"
+    echo "    Локальное .venv не прошло проверку; повтори: bash install.sh"
   else
     echo "  ✗ Packages did not install:$NEDOSTAET"
-    echo "    The system Python is probably externally managed (PEP 668). Options:"
-    echo "      python3 -m venv .venv && . .venv/bin/activate && bash install.sh"
-    echo "      or    pip3 install --user -r requirements.txt"
+    echo "    The local .venv did not pass verification; run: bash install.sh"
   fi
   exit 1
 fi
@@ -595,17 +699,21 @@ echo "      ✓ scripts/*.py исполняемы"
 echo ""
 echo "[5/7] Директории…"
 mkdir -p cases/_logs cases/_assets knowledge "$HOME/Desktop/inbox"
-echo "      ✓ cases/_logs, cases/_assets, knowledge, $HOME/Desktop/inbox"
+bootstrap_knowledge
+echo "      ✓ cases/_logs, cases/_assets, knowledge, $HOME/Desktop/inbox; безопасные шаблоны knowledge"
 
-# ── 6. Проверка Claude Code CLI ──────────────────────────────────────────────
+# ── 6. Проверка клиентских CLI ───────────────────────────────────────────────
 echo ""
-echo "[6/7] Claude Code CLI…"
-if command -v claude >/dev/null 2>&1; then
-  echo "      ✓ claude найден: $(command -v claude)"
-else
-  echo "      ⚠ claude CLI не найден. Установи Claude Code: https://claude.com/claude-code"
-  echo "        Themiz работает поверх него (агенты, протокол, cockpit запускает claude -p)."
-fi
+echo "[6/7] Клиентские CLI…"
+for client in codex claude; do
+  if command -v "$client" >/dev/null 2>&1; then
+    echo "      ✓ $client найден: $(command -v "$client")"
+  else
+    echo "      ⚠ $client CLI не найден"
+  fi
+done
+echo "      Themiz поддерживает Codex CLI и Claude Code на равных."
+echo "      Кнопки агентных задач в браузерной панели пока запускают Claude Code; Codex запускай из CLI."
 
 # ── 6.5. Сторож персональных данных ──────────────────────────────────────────
 # Инвариант «ПД не покидают cases/» держался текстом в конституции, а текст
@@ -616,15 +724,18 @@ echo ""
 echo "[6.5] Сторож персональных данных…"
 python3 scripts/pd_guard.py --install
 
-# ── 6.6. Расписание бота-уведомителя (launchd, только macOS) ────────────────
-# Без регистрации утренняя сводка (заседания + inbox, скрипт morning-briefing.sh)
-# не запускается НИЧЕМ на чистом клоне — владелец узнает об этом только тогда,
-# когда сводка ни разу не пришла. launchd есть только в macOS; на Windows/Linux
-# планировщик другой (Планировщик задач / systemd-таймеры), автоматическая
-# установка не разрабатывается — setup_doctor называет замену явно.
-echo ""
-echo "[6.6] Расписание бота-уведомителя (launchd)…"
-if [ "$(uname)" = "Darwin" ]; then
+ustanovit_utrennyuyu_svodku() {
+  if [ "$(uname)" != "Darwin" ]; then
+    echo "      ⚠ launchd есть только в macOS — расписание не поставлено автоматически."
+    echo "        Замена: Планировщик задач (Windows) / systemd-таймеры (Linux) на"
+    echo "        scripts/morning-briefing.sh; подробности — setup_doctor."
+    return 0
+  fi
+  THEMIZ_REAL_HOME="$(python3 -c 'import os,pwd; print(pwd.getpwuid(os.getuid()).pw_dir)' 2>/dev/null)"
+  if [ -z "$THEMIZ_REAL_HOME" ] || [ "$HOME" != "$THEMIZ_REAL_HOME" ]; then
+    echo "      ⚠ Изолированный HOME: launchd не менялся; интеграция с хостом не проверена."
+    return 0
+  fi
   PLIST_DST="$HOME/Library/LaunchAgents/themiz.morning-briefing.plist"
   mkdir -p "$HOME/Library/LaunchAgents"
   PREZHNIJ_PLIST="$HOME/Library/LaunchAgents/$(printf '%s' 'themiz' | tr 'z' 's').morning-briefing.plist"
@@ -641,11 +752,17 @@ if [ "$(uname)" = "Darwin" ]; then
     echo "      ⚠ launchctl load не удался — поставить вручную: launchctl load $PLIST_DST"
   fi
   echo '      Секрет Telegram (необязателен) — $HOME/.secrets/themiz-telegram.env, см. CLAUDE.md.'
-else
-  echo "      ⚠ launchd есть только в macOS — расписание не поставлено автоматически."
-  echo "        Замена: Планировщик задач (Windows) / systemd-таймеры (Linux) на"
-  echo "        scripts/morning-briefing.sh; подробности — setup_doctor."
-fi
+}
+
+# ── 6.6. Расписание бота-уведомителя (launchd, только macOS) ────────────────
+# Без регистрации утренняя сводка (заседания + inbox, скрипт morning-briefing.sh)
+# не запускается НИЧЕМ на чистом клоне — владелец узнает об этом только тогда,
+# когда сводка ни разу не пришла. launchd есть только в macOS; на Windows/Linux
+# планировщик другой (Планировщик задач / systemd-таймеры), автоматическая
+# установка не разрабатывается — setup_doctor называет замену явно.
+echo ""
+echo "[6.6] Расписание бота-уведомителя (launchd)…"
+ustanovit_utrennyuyu_svodku
 
 # ── 7. Проверка фактом ───────────────────────────────────────────────────────
 # Установщик не имеет права печатать «готово», не проверив. Доктор гоняет
@@ -738,12 +855,12 @@ case "$DOCTOR_RC" in
     if [ "$THEMIZ_LANG" = "ru" ]; then
       echo "      ⚠ проверка окружения не уложилась в ${DOCTOR_PREDEL} с и остановлена."
       echo "        Установка при этом прошла: шаги 1-6 выше зеленые."
-      echo "        Прогнать проверку отдельно: python3 scripts/setup_doctor.py"
+      echo "        Прогнать проверку отдельно: .venv/bin/python scripts/setup_doctor.py"
       echo "        Дать ей больше времени: THEMIZ_DOCTOR_PREDEL=600 bash install.sh"
     else
       echo "      the environment check did not fit ${DOCTOR_PREDEL}s and was stopped."
       echo "        The install itself went through: steps 1-6 above are green."
-      echo "        Run the check on its own: python3 scripts/setup_doctor.py"
+      echo "        Run the check on its own: .venv/bin/python scripts/setup_doctor.py"
       echo "        Give it more time: THEMIZ_DOCTOR_PREDEL=600 bash install.sh"
     fi
     ;;
@@ -757,7 +874,7 @@ if [ "${DOCTOR_RC:-0}" = "1" ]; then
 else
   echo "  Готово. Дальше:"
 fi
-echo "  • Cockpit (UI):   python3 cockpit/app.py  → http://localhost:8800"
+echo "  • Cockpit (UI):   .venv/bin/python cockpit/app.py  → http://localhost:8800"
 echo "  • Или в Claude Code: открой проект, скажи «новое дело …»"
 echo "  • Обновление:     /themiz-update  (тянет последнюю версию логики)"
 echo "  Данные дел в cases/ остаются ЛОКАЛЬНО и не публикуются."

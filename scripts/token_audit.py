@@ -25,6 +25,8 @@ import re
 import sys
 from pathlib import Path
 
+from token_ledger import active_provider
+
 # $/млн токенов: [input, output, cache-write, cache-read]. Реальные цены Anthropic —
 # те же, что у token_ledger: сверяем СПОСОБ подсчета, а не выдумываем свой прайс.
 RATES = {
@@ -63,6 +65,101 @@ def _project_dir(cwd: str) -> str:
 def _latest_session(cwd: str) -> str | None:
     files = glob.glob(os.path.join(_project_dir(cwd), "*.jsonl"))
     return max(files, key=os.path.getmtime) if files else None
+
+
+class NoCodexSessions(Exception):
+    """Нет session_meta с этим cwd — Codex-учет не подменяется Claude-логом."""
+
+
+class CorruptCodexSession(Exception):
+    """Выбранный Codex-журнал не дал целого числового token_count."""
+
+
+def _codex_meta(path: Path) -> dict | None:
+    """Только session_meta: cwd/id/parent, без prompt, сообщений и tool output."""
+    for entry in _read_jsonl(str(path)):
+        if entry.get("type") != "session_meta":
+            continue
+        payload = entry.get("payload") or {}
+        return {key: payload.get(key) for key in ("cwd", "id", "parent_thread_id")}
+    return None
+
+
+def _codex_usage(path: Path) -> int:
+    """Последний cumulative total из token_count; содержимое диалога не читается."""
+    total = 0
+    seen = False
+    with path.open(encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise CorruptCodexSession(f"битая JSONL-строка: {path.name}") from exc
+            if not isinstance(entry, dict):
+                raise CorruptCodexSession(f"не-объект JSONL: {path.name}")
+            payload = entry.get("payload") or {}
+            if entry.get("type") != "event_msg" or payload.get("type") != "token_count":
+                continue
+            usage = (payload.get("info") or {}).get("total_token_usage") or {}
+            value = usage.get("total_tokens")
+            if type(value) is not int or value < 0:
+                raise CorruptCodexSession(f"token_count без total_tokens: {path.name}")
+            seen = True
+            total = max(total, value)
+    if not seen:
+        raise CorruptCodexSession(f"token_count не найден: {path.name}")
+    return total
+
+
+def codex_usage(cwd: str) -> tuple[int, int]:
+    """Токены последнего Codex root-thread и его дочерних потоков по cwd.
+
+    Цена намеренно не возвращается: events ChatGPT-account ее не содержат.
+    """
+    target = os.path.realpath(cwd)
+    records = []
+    for path in Path.home().joinpath(".codex", "sessions").rglob("*.jsonl"):
+        meta = _codex_meta(path)
+        if (not meta or not isinstance(meta.get("cwd"), str)
+                or not isinstance(meta.get("id"), str) or not meta["id"]):
+            continue
+        if os.path.realpath(meta["cwd"]) == target:
+            records.append((path, meta))
+    roots = [(path, meta) for path, meta in records if not meta.get("parent_thread_id")]
+    if not roots:
+        raise NoCodexSessions(target)
+    by_id = {meta["id"]: (path, meta) for path, meta in records}
+    active_id = os.environ.get("CODEX_THREAD_ID") or os.environ.get("CODEX_SESSION_ID")
+
+    def root_id(row: tuple[Path, dict]) -> str | None:
+        seen = set()
+        while row[1].get("parent_thread_id"):
+            if row[1]["id"] in seen:
+                return None
+            seen.add(row[1]["id"])
+            row = by_id.get(row[1]["parent_thread_id"])
+            if row is None:
+                return None
+        return row[1]["id"]
+
+    if active_id:
+        preferred = {root_id(row) for row in records if row[1]["id"] == active_id}
+        roots = [row for row in roots if row[1]["id"] in preferred]
+        if not roots:
+            raise NoCodexSessions(f"активный поток или его корень не найден: {active_id}")
+    root, root_meta = max(roots, key=lambda item: item[0].stat().st_mtime)
+    chosen = {root_meta.get("id")}
+    selected = {root}
+    while True:
+        children = {path for path, meta in records
+                    if meta.get("parent_thread_id") in chosen and path not in selected}
+        if not children:
+            break
+        selected.update(children)
+        chosen.update(meta.get("id") for path, meta in records if path in children)
+    return sum(_codex_usage(path) for path in selected), len(selected)
 
 
 def _transcripts(session_path: str) -> list[str]:
@@ -136,7 +233,22 @@ def agree(mine: float, ref: float, tol: float) -> bool:
     return abs(mine - ref) / abs(ref) <= tol
 
 
-def cmd_json(cwd: str) -> int:
+def _cmd_json_codex(cwd: str) -> int:
+    try:
+        total, streams = codex_usage(cwd)
+    except (NoCodexSessions, CorruptCodexSession) as e:
+        print(f"token_audit: Codex-сессия для cwd не найдена ({e}) — ОТКАЗ", file=sys.stderr)
+        return 2
+    print(json.dumps({"provider": "codex", "total": total, "streams": streams,
+                      "money": None, "money_status": "not_applicable(subscription)",
+                      "context_status": "unknown", "model_status": "unknown",
+                      "role_status": "unknown"}, ensure_ascii=False))
+    return 0
+
+
+def cmd_json(cwd: str, provider: str = "auto") -> int:
+    if active_provider(provider) == "codex":
+        return _cmd_json_codex(cwd)
     try:
         total, money = audit(cwd)
     except NoSessions as e:
@@ -147,12 +259,40 @@ def cmd_json(cwd: str) -> int:
     return 0
 
 
-def cmd_compare(cwd: str, tol: float) -> int:
+def _compare_codex(cwd: str) -> int:
+    """Сверка Codex-снимка по фактическим токенам; цена подписки не применяется."""
+    try:
+        before_tot, before_count = codex_usage(cwd)
+    except (NoCodexSessions, CorruptCodexSession) as e:
+        print(f"token_audit: Codex-сессия для cwd не найдена ({e}) — ОТКАЗ", file=sys.stderr)
+        return 2
+    import token_ledger
+    try:
+        ref_tot, ref_count = token_ledger.codex_usage(cwd)
+        after_tot, after_count = codex_usage(cwd)
+    except (token_ledger.NoCodexSessions, token_ledger.CorruptCodexSession,
+            NoCodexSessions, CorruptCodexSession) as e:
+        print(f"token_audit: Codex-сессия не подтверждена ({e}) — ОТКАЗ", file=sys.stderr)
+        return 2
+    if (before_tot, before_count) != (after_tot, after_count):
+        print("token_audit: Codex session менялась во время сверки — повторить на стабильном снимке",
+              file=sys.stderr)
+        return 2
+    ok_tot = before_tot == ref_tot and before_count == ref_count
+    print(f"token_audit: Codex events, потоков {before_count}; токены аудит {before_tot:,} / "
+          f"ledger {ref_tot:,} — {'сходится' if ok_tot else 'РАСХОЖДЕНИЕ'}".replace(",", " "))
+    print("token_audit: подписка — USD не применяется; сверены только фактические токены")
+    return 0 if ok_tot else 1
+
+
+def cmd_compare(cwd: str, tol: float, provider: str = "auto") -> int:
+    provider = active_provider(provider)
+    if provider == "codex":
+        return _compare_codex(cwd)
     try:
         mine_tot, mine_money = audit(cwd)
-    except NoSessions as e:
-        print(f"token_audit: каталог сессий не найден ({e}) — сверять нечего, ОТКАЗ",
-              file=sys.stderr)
+    except NoSessions:
+        print("token_audit: Claude-сессия для cwd не найдена — ОТКАЗ", file=sys.stderr)
         return 2
     # token_ledger импортируется ТОЛЬКО здесь — эталон для сверки. Путь --json его
     # не касается и остается независимым счетчиком.
@@ -269,6 +409,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Независимая сверка расхода токенов")
     ap.add_argument("--json", action="store_true", help="свой подсчет: {total, money}")
     ap.add_argument("--compare", action="store_true", help="сверить с token_ledger (exit 1 при расхождении)")
+    ap.add_argument("--provider", choices=("auto", "claude", "codex"), default="auto",
+                    help="источник; auto выбирает Codex при CODEX_THREAD_ID/SESSION_ID")
     ap.add_argument("--tol", type=float, default=DEFAULT_TOL, help="допуск расхождения (доля, по умолчанию 0.02)")
     ap.add_argument("--selftest", action="store_true", help="проверка без сети")
     a = ap.parse_args()
@@ -276,9 +418,9 @@ def main() -> int:
     if a.selftest:
         return selftest()
     if a.compare:
-        return cmd_compare(os.getcwd(), a.tol)
+        return cmd_compare(os.getcwd(), a.tol, a.provider)
     if a.json:
-        return cmd_json(os.getcwd())
+        return cmd_json(os.getcwd(), a.provider)
     ap.error("нужен --json, --compare или --selftest")
     return 2
 

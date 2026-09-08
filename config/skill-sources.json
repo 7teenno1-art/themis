@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "canonical_root": ".claude/skills",
+  "mirror_root": ".agents/skills",
+  "skills": {
+    "askacouncil": {"kind": "project-local", "canonical": ".claude/skills/askacouncil"},
+    "doc-drafter": {"kind": "project-local", "canonical": ".claude/skills/doc-drafter"},
+    "humanizer-legal": {"kind": "project-local", "canonical": ".claude/skills/humanizer-legal", "history": "Project-specific copy adopted at 41d79038; managed as local canonical, not a claim about global upstream freshness."},
+    "position-council": {"kind": "project-local", "canonical": ".claude/skills/position-council"},
+    "task-brief": {"kind": "project-local", "canonical": ".claude/skills/task-brief"},
+    "themiz-setup": {"kind": "project-local", "canonical": ".claude/skills/themiz-setup"},
+    "themiz-update": {"kind": "project-local", "canonical": ".claude/skills/themiz-update"},
+    "voice-to-brief": {"kind": "project-local", "canonical": ".claude/skills/voice-to-brief"}
+  }
+}

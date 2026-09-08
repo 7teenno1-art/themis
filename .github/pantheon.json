@@ -34,7 +34,7 @@
       {
         "id": "intake",
         "title_en": "Hand over the case files",
-        "title_ru": "Передайте материалы дела",
+        "title_ru": "Передай материалы дела",
         "diagram_en": "Intake",
         "diagram_ru": "Прием",
         "title_zh": "把案件材料交过来",
@@ -47,7 +47,7 @@
       {
         "id": "extract",
         "title_en": "Scans are read on your Mac",
-        "title_ru": "Сканы читаются на вашем Mac",
+        "title_ru": "Сканы читаются на твоем Mac",
         "diagram_en": "Extract",
         "diagram_ru": "Чтение",
         "title_zh": "扫描件在你的 Mac 上被读出来",
@@ -73,7 +73,7 @@
       {
         "id": "research",
         "title_en": "Case law for and against",
-        "title_ru": "Практика за вас и против вас",
+        "title_ru": "Практика за твою позицию и против нее",
         "diagram_en": "Research",
         "diagram_ru": "Практика",
         "title_zh": "正反两面的判例",
@@ -125,27 +125,34 @@
     ],
     "takt": {
       "source_path": "docs/assets/pantheon/takt-source.png",
-      "source_sha256": "17f2095e4850b0e602f77cb992e223d0132dd424d8b124c294453c26f65c974e",
-      "plate_geometry": ".github/pantheon/takt-plity.json",
+      "source_sha256": "2d1200b3d07bd099799eb51235a68da1deeb49094ab592ceb0d6d6a908c9a228",
       "languages": {
         "en": {
           "published_path": "docs/assets/pantheon/takt-en.png",
-          "published_sha256": "5adb345e99492f0f5a1938ece503ce1709b445e1dfb5b1b98834fa46033390c3",
-          "alt": "Themis workflow in one wide Pantheon marble scene: seven labelled steps from Intake to Hearing, linked by blue threads beside the classical column"
+          "published_sha256": "50c3833b7fd39fa4290a60073f24473b79bbc9cf76e6747706ae808e18069d4a",
+          "alt": "Themiz workflow illustration: seven labelled stages from Intake to Hearing in a Pantheon marble scene, not an application screenshot"
         },
         "ru": {
           "published_path": "docs/assets/pantheon/takt-ru.png",
-          "published_sha256": "3c95f186d9acc59690cf63bd5d2e44934bcad0996061e1c73f498af24c749a19",
-          "alt": "Такт Фемиды одной широкой мраморной сценой Pantheon: семь подписанных шагов от Приема до Заседания, связаны голубой нитью у классической колонны"
+          "published_sha256": "2d1200b3d07bd099799eb51235a68da1deeb49094ab592ceb0d6d6a908c9a228",
+          "alt": "Схема рабочего процесса Themiz в мраморной сцене Pantheon: семь подписанных этапов, связанных стрелками; иллюстрация, не снимок приложения"
         },
         "zh": {
           "published_path": "docs/assets/pantheon/takt-zh.png",
-          "published_sha256": "75b3a6f1a8d7c2a09c1e6632cb81013ad5277f180ac960fa82b92fce958124db",
-          "alt": "Pantheon 宽幅大理石场景中的忒弥斯工作流程：从接收到开庭的七个带标注步骤，由蓝色丝线串起，旁边是古典石柱"
+          "published_sha256": "20c9bca90698c1159d19359b03cf2d8d7b30a24c3ee4d31606091a379f28265b",
+          "alt": "Themiz 工作流程插图：Pantheon 大理石场景中从接收到开庭的七个带标注阶段，并非应用截图"
         }
       },
       "generation_receipt": ".github/pantheon/takt-generation-receipt.json",
-      "visual_judge_receipt": ".github/pantheon/takt-visual-judge-receipt.json"
+      "visual_judge_receipt": ".github/pantheon/takt-visual-judge-receipt.json",
+      "direction_path": ".github/pantheon/takt-gold-direction.md",
+      "lettering": {
+        "method": "native-image-generation",
+        "deterministic": false,
+        "finish": "gold paint inside incised marble lettering",
+        "width": 1672,
+        "height": 941
+      }
     },
     "bible": {
       "character_sheet": {

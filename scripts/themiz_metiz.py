@@ -260,8 +260,8 @@ def selftest() -> int:
             """
             skripty = koren / "scripts"
             skripty.mkdir(parents=True, exist_ok=True)
-            for imya in ("markdown_extract.py", "themiz_metiz.py", "themiz-metiz.mjs",
-                         "sreda.py"):
+            for imya in ("markdown_extract.py", "extraction_runtime.py", "themiz_metiz.py",
+                         "themiz-metiz.mjs", "sreda.py"):
                 (skripty / imya).write_bytes((HERE / imya).read_bytes())
             return skripty
 

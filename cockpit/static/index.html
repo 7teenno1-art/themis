@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Фемида · Зарубин и партнеры</title>
+<title>Themiz · Зарубин и партнеры</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;0,8..60,600&family=Onest:wght@400;500;600&display=swap" rel="stylesheet">
@@ -194,7 +194,7 @@ header{grid-area:head; display:flex; align-items:center; gap:15px; padding:12px 
 .toast.show{opacity:1; transform:translate(-50%,0)}
 .toast .mk{width:22px; height:22px; border-radius:50%; background:var(--blue); color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; box-shadow:0 0 14px var(--blue-glow)}
 .toast.err .mk{background:var(--red); box-shadow:0 0 14px var(--red-glow)}
-body.drag::after{content:"Отпустите — документы уйдут в работу"; position:fixed; inset:14px; border-radius:22px;
+body.drag::after{content:"Отпусти — документы уйдут в работу"; position:fixed; inset:14px; border-radius:22px;
   border:2px dashed var(--red); background:rgba(177,30,47,.05); -webkit-backdrop-filter:blur(2px); backdrop-filter:blur(2px);
   display:flex; align-items:center; justify-content:center; font-family:var(--serif); font-size:20px; color:var(--red); z-index:90; pointer-events:none}
 @keyframes rise{from{opacity:0; transform:translateY(8px)}to{opacity:1; transform:none}}
@@ -207,7 +207,7 @@ body.drag::after{content:"Отпустите — документы уйдут �
 <div class="app">
   <header class="glass">
     <img class="logo" src="/logo.png" alt="Зарубин и партнеры">
-    <div class="brand"><span class="mark">Фемида<em>.</em></span><span class="sub">подготовка процессуальных документов</span></div>
+    <div class="brand"><span class="mark">Themiz<em>.</em></span><span class="sub">подготовка процессуальных документов</span></div>
     <div class="status"><span class="dot" id="dot"></span><span id="statusText">в покое</span></div>
   </header>
 
@@ -228,7 +228,7 @@ body.drag::after{content:"Отпустите — документы уйдут �
         <div class="meta" id="ctxMeta"></div>
         <div class="docs" id="docs"></div>
       </div>
-      <div class="stream" id="stream"><div class="empty">Здесь юристы обсуждают дело.<br>Дайте задачу ниже — или перетащите документы.</div></div>
+      <div class="stream" id="stream"><div class="empty">Здесь юристы обсуждают дело.<br>Дай задачу ниже — или перетащи документы.</div></div>
     </section>
 
     <!-- НИЗ: юристы + ввод -->
@@ -345,7 +345,7 @@ async function sendAnswer(t){ if(!t)return;
   await fetch('/api/task',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t})});}
 
 $('#newBtn').onclick=async()=>{
-  const t=prompt('Новое дело — опишите: клиент (ФИО), суть спора, что нужно сделать.');
+  const t=prompt('Новое дело — опиши: клиент (ФИО), суть спора, что нужно сделать.');
   if(!t||!t.trim())return;
   await fetch('/api/new-case',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t})});
 };
@@ -377,7 +377,7 @@ function renderMsg(m){
   const av=isAgent?`<img src="/faces/${encodeURIComponent(m.face)}.png" alt="" decoding="async" onerror="this.remove()">${esc((m.name||'·')[0])}`:(m.role==='me'?'<img src="/crest.svg" alt="">':'·');
   const head=isAgent?`<div class="name">${esc(m.name)}<span class="r">${esc(m.prole)}</span></div>`:'';
   let extra='';
-  if(m.doc){const nm=m.doc.split('/').pop(); extra=`<div class="doccard" data-path="${esc(m.doc)}"><span class="ic">DOCX</span><div style="min-width:0;flex:1"><div class="dn">${esc(nm)}</div><div class="dd">нажмите — открыть</div></div><button class="learn" data-path="${esc(m.doc)}" title="Сравнить мои правки с черновиком Фемиды">📝 Изучить правки</button></div>`;}
+  if(m.doc){const nm=m.doc.split('/').pop(); extra=`<div class="doccard" data-path="${esc(m.doc)}"><span class="ic">DOCX</span><div style="min-width:0;flex:1"><div class="dn">${esc(nm)}</div><div class="dd">нажми — открыть</div></div><button class="learn" data-path="${esc(m.doc)}" title="Сравнить мои правки с черновиком Themiz">📝 Изучить правки</button></div>`;}
   if(m.options&&m.options.length){extra+='<div class="opts">'+m.options.map(o=>`<button class="opt">${esc(o)}</button>`).join('')+'</div>';}
   el.innerHTML=`<div class="av">${av}</div><div class="bub">${head}<div class="text">${esc(m.text)}</div>${extra}</div>`;
   if(m.doc){const card=el.querySelector('.doccard');

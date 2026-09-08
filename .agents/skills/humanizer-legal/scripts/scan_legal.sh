@@ -91,6 +91,18 @@ normalize() { # infile outfile
        END { if (buf!="") print buf }' "$1" > "$2"
 }
 
+# Временный файл только с явным шаблоном пути: голый mktemp на macOS игнорирует
+# TMPDIR (берет confstr _CS_DARWIN_USER_TEMP_DIR) и под песочницей отдает пустую
+# строку - grep по пустому пути молча давал ноль срабатываний. Отказ валит кодом 3.
+make_tmp() {
+  local t
+  if ! t="$(mktemp "${TMPDIR:-/tmp}/scan_legal.XXXXXX")" || [ -z "$t" ]; then
+    echo "ОШИБКА: временный файл не создан (mktemp отказал); запуск остановлен." >&2
+    exit 3
+  fi
+  printf '%s\n' "$t"
+}
+
 report_cat() { # name regex file
   local name="$1" re="$2" f="$3" hits n
   hits="$(grep -nE "$re" "$f" 2>/dev/null | head -60)"
@@ -102,7 +114,7 @@ report_cat() { # name regex file
 }
 
 count_cat() { # file regex -> число срабатываний по нормализованному тексту
-  local t; t="$(mktemp)"; normalize "$1" "$t"
+  local t; t="$(make_tmp)" || exit 3; normalize "$1" "$t"
   grep -oE "$2" "$t" 2>/dev/null | grep -c .
   rm -f "$t"
 }
@@ -136,7 +148,7 @@ scan_file() { # file label
   local src="$1" f fq
   SCAN_RC=0
   load_blockers || return 2
-  f="$(mktemp)"; normalize "$src" "$f"
+  f="$(make_tmp)" || exit 3; normalize "$src" "$f"
   # Дословная цитата нормы — чужой текст, автором не сочиненный: стилевые
   # детекторы к нему неприменимы. Законодатель пишет «достаточных данных»
   # (ч. 3 ст. 11 УПК РФ), и слово «данн*» из HARD BANS браковало документ за
@@ -146,7 +158,7 @@ scan_file() { # file label
   # markdown с «>») исключаются из АВТОРСКИХ категорий; технические (копипаста,
   # невидимые символы, плейсхолдеры, латиница, формат дат) проверяются везде —
   # там мусор остается мусором и внутри цитаты.
-  fq="$(mktemp)"; grep -v '^[[:space:]]*>' "$f" > "$fq" 2>/dev/null || cp "$f" "$fq"
+  fq="$(make_tmp)" || exit 3; grep -v '^[[:space:]]*>' "$f" > "$fq" 2>/dev/null || cp "$f" "$fq"
   echo "=== scan_legal: $2 ==="
   echo "-- маркеры (категория, число срабатываний, первые примеры; N = номер абзаца) --"
   report_cat "HARD BANS"                  "$RE_HARDBAN"     "$fq"
@@ -231,6 +243,15 @@ EOF
   n="$(count_cat "$d/yo.txt" "$RE_YO")"
   if [ "$n" -ne 4 ]; then echo "FAIL: NFC/NFD-маркер сработал $n раз вместо 4"; rc=1
   else echo "ok: NFC/NFD-маркер -> 4"; fi
+  # T201: отказ mktemp обязан валить скрипт ненулевым кодом, а не печатать нулевой отчет.
+  # Прогон в подоболочке: exit 3 внутри scan_file не должен ронять саму самопроверку.
+  mkdir -p "$d/fakebin"
+  printf '#!/bin/sh\nexit 1\n' > "$d/fakebin/mktemp"
+  chmod +x "$d/fakebin/mktemp"
+  ( PATH="$d/fakebin:$PATH" scan_file "$d/dirty.txt" "selftest-mktemp-fail" ) > "$d/mktempfail.out" 2>&1; scan_rc=$?
+  if [ "$scan_rc" -eq 0 ]; then echo "FAIL: отказ mktemp дал код 0"; rc=1
+  elif grep -q 'HARD BANS' "$d/mktempfail.out"; then echo "FAIL: при отказе mktemp напечатан отчет"; rc=1
+  else echo "ok: отказ mktemp -> код $scan_rc без отчета"; fi
   if [ $rc -eq 0 ]; then echo "SELFTEST OK"; else echo "SELFTEST FAILED"; fi
   return $rc
 }
@@ -242,6 +263,6 @@ fi
 case "${1:-}" in
   --selftest) selftest; exit $? ;;
   "" ) echo "usage: scan_legal.sh ФАЙЛ | - | --selftest" >&2; exit 2 ;;
-  - ) tmp="$(mktemp)"; trap 'rm -f "$tmp"' EXIT; cat > "$tmp"; scan_file "$tmp" "stdin" ;;
+  - ) tmp="$(make_tmp)" || exit 3; trap 'rm -f "$tmp"' EXIT; cat > "$tmp"; scan_file "$tmp" "stdin" ;;
   * ) [ -f "$1" ] || { echo "нет файла: $1" >&2; exit 2; }; scan_file "$1" "$1" ;;
 esac

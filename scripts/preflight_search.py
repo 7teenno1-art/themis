@@ -60,6 +60,37 @@ def probe_url(url: str, timeout: int = 8) -> bool:
         return False
 
 
+def check_lynceuz() -> tuple[bool, str]:
+    """Основной сборщик: проверяем установленный CLI, не наличие чужого ключа.
+
+    Health подтверждает возможность url/crawl/extract, но не доступность
+    конкретного сайта и не полноценный поиск по произвольному запросу.
+    """
+    home = Path(os.environ.get("LYNCEUZ_HOME", str(Path.home() / "Проекты" / "lynceuz")))
+    entry = home / "src" / "lynceuz.mjs"
+    if not entry.is_file():
+        return False, "CLI не найден; указать каталог установки в LYNCEUZ_HOME"
+    try:
+        result = subprocess.run(["node", str(entry), "health", "--json"], cwd=home,
+                                capture_output=True, text=True, timeout=20)
+        report = json.loads(result.stdout)
+        if result.returncode or not isinstance(report, dict) or report.get("status") != "ok":
+            reason = report.get("message", report.get("code", "нет описания")) \
+                if isinstance(report, dict) else "ответ не объект"
+            return False, f"health не прошел (код {result.returncode}): {reason}"
+        ready = [c for c in report.get("capabilities", [])
+                 if isinstance(c, dict) and c.get("state") == "ready"]
+        commands = {command for c in ready for command in c.get("commands", [])}
+        if not {"url", "crawl", "extract"} <= commands:
+            return False, "health не подтвердил url/crawl/extract"
+        search = "search готов" if "search" in commands else "общий search не подтвержден"
+        return True, f"url/crawl/extract готовы; {search}; сайт проверять отдельным запуском"
+    except subprocess.TimeoutExpired:
+        return False, "таймаут health (20 с)"
+    except (OSError, ValueError, TypeError) as exc:
+        return False, f"health не прочитан: {type(exc).__name__}"
+
+
 def check_mcp_key(server: str) -> tuple[bool, str]:
     """Есть ли ключ у MCP-сервера в $HOME/.claude.json."""
     cfg = str(Path.home() / ".claude.json")
@@ -143,12 +174,21 @@ def check_sgai() -> tuple[bool, str]:
         return False, str(e)[:40]
 
 
+def search_channels(rows):
+    """Живой поиск СудАкта считается поиском, не только публикатором."""
+    return [r for r in rows if r[0].startswith(
+        ("ScrapeGraphAI", "MCP", "Поиск практики sudact.ru")) and r[1] is True]
+
+
 def selftest() -> int:
     """Без сети. Порог путь-резолва (b8086b2): check_mcp_key читал литеральный
     "$HOME/.claude.json" → «отсутствует» при файле в 91 КБ. Фикстура ПО ОБЕ
     стороны порога: HOME с конфигом — ключ найден, НЕ слепое «отсутствует»;
     HOME без конфига — честный отказ."""
     import tempfile
+    import contextlib
+    import io
+    from unittest.mock import patch
     checks = []
     _home0 = os.environ.get("HOME")
     with tempfile.TemporaryDirectory() as tmp:
@@ -181,6 +221,40 @@ def selftest() -> int:
         os.environ.pop("THEMIZ_CASE", None)
         if _case0 is not None:
             os.environ["THEMIZ_CASE"] = _case0
+    checks.append(("живой СудАкт достаточен для поиска без платного агрегатора",
+                   bool(search_channels([("Поиск практики sudact.ru", True, "", "")]))))
+    checks.append(("мертвый поиск и живой публикатор не дают поискового канала",
+                   not search_channels([("Поиск практики sudact.ru", False, "", ""),
+                                        ("Публикатор vsrf.ru", True, "", "")])))
+    with tempfile.TemporaryDirectory() as tmp:
+        entry = Path(tmp) / "src" / "lynceuz.mjs"
+        entry.parent.mkdir()
+        entry.write_text("// synthetic fixture\n", encoding="utf-8")
+        health = {"status": "ok", "capabilities": [
+            {"state": "ready", "commands": ["url", "crawl", "extract"]}]}
+        response = subprocess.CompletedProcess([], 0, json.dumps(health), "")
+        with patch.dict(os.environ, {"LYNCEUZ_HOME": tmp}), \
+                patch.object(subprocess, "run", return_value=response) as run:
+            ok, note = check_lynceuz()
+            checks.append(("Линкей проверяется живым health, не кредитами резерва",
+                           ok and "search не подтвержден" in note and
+                           run.call_args.args[0][-2:] == ["health", "--json"]))
+            response.stdout = '{"status":"ok","capabilities":[]}'
+            checks.append(("пустой health Линкея не считается готовностью", not check_lynceuz()[0]))
+    captured = io.StringIO()
+    with patch.object(sys, "argv", ["preflight_search.py", "--json"]), \
+            patch(__name__ + ".check_lynceuz", return_value=(True, "synthetic health")), \
+            patch(__name__ + ".check_sgai", return_value=(False, "нет кредитов")), \
+            patch(__name__ + ".check_mcp_key", return_value=(False, "нет")), \
+            patch(__name__ + ".probe_url", return_value=True), \
+            patch(__name__ + "._sudact_allowed", return_value=False), \
+            patch(__name__ + ".resolve_case", return_value=""), \
+            contextlib.redirect_stdout(captured), contextlib.redirect_stderr(io.StringIO()):
+        code = main()
+    ordered = json.loads(captured.getvalue())
+    checks.append(("Линкей первый, ScrapeGraphAI резерв; stdout содержит только JSON",
+                   code == 0 and ordered[0]["channel"] == "Линкей (lynceuz)" and
+                   "РЕЗЕРВ" in ordered[1]["action"]))
     bad = [n for n, ok in checks if not ok]
     for n, ok in checks:
         print(f"  {'✓' if ok else '✗'} {n}")
@@ -205,9 +279,14 @@ def main() -> int:
     rows = []
     case = resolve_case(a.case)
 
+    lynceuz_ok, note = check_lynceuz()
+    rows.append(("Линкей (lynceuz)", lynceuz_ok, note,
+                 "ОСНОВНОЙ: skill lynceuz; лестница обнаружения; сохранять манифест"
+                 if lynceuz_ok else "ОСНОВНОЙ недоступен: назвать причину перед переходом к резервам"))
+
     ok, note = check_sgai()
     rows.append(("ScrapeGraphAI (sgai)", ok, note,
-                 "внешний поиск" if ok else "не поручать охотникам"))
+                 "РЕЗЕРВ после Линкея; только --json" if ok else "РЕЗЕРВ недоступен: не поручать охотникам"))
 
     for srv in ("tavily", "firecrawl"):
         ok, note = check_mcp_key(srv)
@@ -299,15 +378,20 @@ def main() -> int:
             print(f"{c:<28}{mark:<10}{n:<44}{act}")
         print("-" * 118)
 
-    external = [r for r in rows if r[0].startswith(("ScrapeGraphAI", "MCP")) and r[1]]
+    external = search_channels(rows)
     publishers = [r for r in rows if r[0].startswith("Публикатор") and r[1]]
-    if not external and not publishers:
+    diagnostics = sys.stderr if a.json else sys.stdout
+    if not external and not publishers and not lynceuz_ok:
         print("\nВНЕШНИХ КАНАЛОВ НЕТ. Охоту за внешней практикой не запускать: "
-              "работать по knowledge/practice_index.md и честно зафиксировать пробел.")
+              "работать по knowledge/practice_index.md и честно зафиксировать пробел.",
+              file=diagnostics)
         return 1
     if not external:
-        print("\nПоисковых каналов нет, публикаторы отвечают: верификация известных "
-              "реквизитов возможна (verify_act.py), поиск новых актов — нет.")
+        print("\nПоиск по общему запросу не подтвержден. " +
+              ("Линкей доступен: пройти лестницу обнаружения на целевом источнике. "
+               if lynceuz_ok else "Линкей недоступен. ") +
+              "Доступность публикатора сама по себе не подтверждает работу его поиска.",
+              file=diagnostics)
     return 0
 
 

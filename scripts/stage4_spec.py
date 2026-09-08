@@ -13,7 +13,8 @@
   3. модель шага выводится прибором из уровня и сверяется по брифу;
   4. загрузка в панель ограничена по числу файлов, размеру файла и объему запроса,
      отказ громкий (413), а не молчаливый пропуск.
-Плюс инвариант денег: независимый счетчик сходится с ledger в пределах 2%.
+Плюс инвариант учета: независимый счетчик сверяет фактические токены с ledger.
+Подписка не имеет долларового гейта; остаток квоты из токенов не выводится.
 
 Выход: 0 — этап принят; 1 — есть несданное (список с контрактами).
 """
@@ -333,25 +334,25 @@ def check_tree_clean():
 
 
 # ── 3. Модель по уровню ─────────────────────────────────────────────────────
-MODEL_CONTRACT = """  scripts/model_policy.py — модель шага выводится из уровня, а не из пина
-    --level MICRO|L1|L2|L3 --step ШАГ  → печатает алиас (haiku|sonnet|opus), код 0
-        draft  review : MICRO,L1 → sonnet ; L2,L3 → opus
-        hunt          : sonnet ; на MICRO запрещен (код 1, причина со словом «запрещ»)
-        council-role  : sonnet ; council-chair: opus ; оба запрещены на MICRO и L1
-        read-text classify : haiku ; read-scan : sonnet
+MODEL_CONTRACT = """  scripts/model_policy.py — модель Codex выводится из уровня и роли
+    --level MICRO|L1|L2|L3 --step ШАГ  → печатает модель Codex, код 0
+        draft: Terra; review: Astra; hunt: Terra; hunt-skeptic: Sol
+        council-role: Sol; council-chair: Astra; на MICRO/L1 совет запрещен
+        read-text/classify: Luna; read-scan: Terra
     --brief ФАЙЛ — сверка плана брифа: уровень берется из строки КЛАССИФИКАЦИЯ,
         каждая строка таблицы ПЛАН сверяется с политикой. Код 0 — сходится;
-        код 1 — назвать нарушителя (Opus на L1 — пятикратная цена типового документа).
+        код 1 — назвать нарушителя. Проверяющий Astra отделен от составителя Terra,
+        но оба остаются у одного поставщика.
         Fail-closed: нет уровня либо пустая колонка «Модель» — код 1, не 0.
     --selftest дает 0 без сети. Скилл task-brief обязан звать этот прибор:
     «модель автоматом из брифа» значит из прибора, а не из головы."""
 
-MATRIX = [("MICRO", "draft", "sonnet"), ("L1", "draft", "sonnet"),
-          ("L2", "draft", "opus"), ("L3", "draft", "opus"),
-          ("L1", "review", "sonnet"), ("L3", "review", "opus"),
-          ("L2", "hunt", "sonnet"), ("L2", "council-role", "sonnet"),
-          ("L3", "council-chair", "opus"), ("L2", "read-text", "haiku"),
-          ("L2", "classify", "haiku"), ("L2", "read-scan", "sonnet")]
+MATRIX = [("MICRO", "draft", "gpt-5.6-terra"), ("L1", "draft", "gpt-5.6-terra"),
+          ("L2", "draft", "gpt-5.6-terra"), ("L3", "draft", "gpt-5.6-terra"),
+          ("L1", "review", "gpt-6-astra"), ("L3", "review", "gpt-6-astra"),
+          ("L2", "hunt", "gpt-5.6-terra"), ("L2", "council-role", "gpt-5.6-sol"),
+          ("L3", "council-chair", "gpt-6-astra"), ("L2", "read-text", "gpt-5.6-luna"),
+          ("L2", "classify", "gpt-5.6-luna"), ("L2", "read-scan", "gpt-5.6-terra")]
 FORBIDDEN = [("MICRO", "hunt"), ("MICRO", "council-role"), ("L1", "council-chair")]
 
 BRIEF_OK = """## БРИФ — типовое ходатайство                Дата: 19.08.2026
@@ -361,18 +362,18 @@ BRIEF_OK = """## БРИФ — типовое ходатайство             
 ПЛАН
 | Шаг | Исполнитель | Модель | Прогноз |
 |---|---|---|---|
-| 4 | doc-drafter | sonnet | 40k |
-| 5 | doc-reviewer | sonnet | 20k |
+| 4 | doc-drafter | gpt-5.6-terra | 40k |
+| 5 | doc-reviewer | gpt-6-astra | 20k |
 """
-BRIEF_BAD = BRIEF_OK.replace("| 4 | doc-drafter | sonnet | 40k |", "| 4 | doc-drafter | opus | 40k |")
+BRIEF_BAD = BRIEF_OK.replace("| 4 | doc-drafter | gpt-5.6-terra | 40k |", "| 4 | doc-drafter | gpt-5.6-sol | 40k |")
 BRIEF_NOLEVEL = "\n".join(l for l in BRIEF_OK.splitlines() if "КЛАССИФИКАЦИЯ" not in l)
-BRIEF_NOMODEL = BRIEF_OK.replace("| 4 | doc-drafter | sonnet | 40k |", "| 4 | doc-drafter |  | 40k |")
+BRIEF_NOMODEL = BRIEF_OK.replace("| 4 | doc-drafter | gpt-5.6-terra | 40k |", "| 4 | doc-drafter |  | 40k |")
 # Бриф зовет исполнителя как в чате — персоной или персоной с именем агента.
 # Политика, знающая только машинное имя, молча пропускает такую строку.
-BRIEF_PERSONA = BRIEF_OK.replace("| 4 | doc-drafter | sonnet | 40k |",
-                                 "| 4 | Сперанский | opus | 40k |")
-BRIEF_BOTH = BRIEF_OK.replace("| 4 | doc-drafter | sonnet | 40k |",
-                              "| 4 | Сперанский (doc-drafter) | opus | 40k |")
+BRIEF_PERSONA = BRIEF_OK.replace("| 4 | doc-drafter | gpt-5.6-terra | 40k |",
+                                 "| 4 | Сперанский | gpt-5.6-sol | 40k |")
+BRIEF_BOTH = BRIEF_OK.replace("| 4 | doc-drafter | gpt-5.6-terra | 40k |",
+                              "| 4 | Сперанский (doc-drafter) | gpt-5.6-sol | 40k |")
 
 
 def check_model_policy():
@@ -398,11 +399,11 @@ def check_model_policy():
     with tempfile.TemporaryDirectory() as td:
         for name, text, want_code, why in (
                 ("ok.md", BRIEF_OK, 0, "верный бриф отвергнут"),
-                ("bad.md", BRIEF_BAD, 1, "Opus на L1 пропущен — пятикратная цена"),
+                ("bad.md", BRIEF_BAD, 1, "Sol на месте Terra пропущен"),
                 ("nolevel.md", BRIEF_NOLEVEL, 1, "бриф без уровня принят (нужен fail-closed)"),
                 ("nomodel.md", BRIEF_NOMODEL, 1, "пустая колонка модели принята"),
-                ("persona.md", BRIEF_PERSONA, 1, "Opus на L1 пропущен из-за имени персоны"),
-                ("both.md", BRIEF_BOTH, 1, "Opus на L1 пропущен при «персона (агент)»")):
+                ("persona.md", BRIEF_PERSONA, 1, "Sol на месте Terra пропущен из-за имени персоны"),
+                ("both.md", BRIEF_BOTH, 1, "Sol на месте Terra пропущен при «персона (агент)»")):
             p = Path(td) / name
             p.write_text(text, encoding="utf-8")
             code, out, err = run([tool("model_policy.py"), "--brief", str(p)])
@@ -512,11 +513,12 @@ def check_upload_limits():
     return fails
 
 
-# ── 5. Деньги: независимый счетчик ──────────────────────────────────────────
+# ── 5. Подписка: независимый счетчик токенов ────────────────────────────────
 MONEY_CONTRACT = """  scripts/token_audit.py --compare
-    Независимый счетчик расхода сходится с token_ledger в пределах 2%.
-    Расхождение = баг в одном из двух: цифра, на которой стоят бюджетные гейты,
-    перестает быть основанием для решения."""
+    Независимый счетчик сверяет фактические токены с token_ledger.
+    Codex: точное совпадение стабильного снимка и числа потоков дает код 0;
+    расхождение, поврежденный или отсутствующий журнал — ненулевой код.
+    USD не применяется: это подписка, а не API-бюджет. Остаток квоты неизвестен."""
 
 
 def check_money():
@@ -535,7 +537,7 @@ CHECKS = [
     ("боевое дерево чисто от рендеров", check_tree_clean, PNG_CONTRACT),
     ("модель выводится из уровня", check_model_policy, MODEL_CONTRACT),
     ("загрузка в панель ограничена", check_upload_limits, UPLOAD_CONTRACT),
-    ("счет денег сходится", check_money, MONEY_CONTRACT),
+    ("счет токенов сходится", check_money, MONEY_CONTRACT),
 ]
 
 

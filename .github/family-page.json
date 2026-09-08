@@ -4,540 +4,184 @@
   "slug": "themiz",
   "license_badge": "community%201.0",
   "status_badge": "in%20development",
-  "languages": [
-    "en",
-    "ru",
-    "zh"
-  ],
-  "quick_code": "git clone https://github.com/zarubinvibe/themiz.git\ncd themiz\nbash install.sh\n\n# дальше открывайте, чем привычнее:\nclaude                  # Claude Code\ncodex                   # Codex CLI\ncode .                  # VS Code: агент открывается внутри редактора\npython3 cockpit/app.py   # только панель в браузере, без агента",
+  "languages": ["en", "ru", "zh"],
+  "quick_code": "git clone https://github.com/zarubinvibe/themiz.git\ncd themiz\nbash install.sh\n. .venv/bin/activate",
   "text": {
     "en": {
       "title": "Themiz",
       "name": "Themiz",
-      "tagline": "Themiz takes the mechanics of a court case off your desk: it reads the file, hunts case law, and reviews its own documents.",
-      "hero_alt": "Themiz in white marble with scales and sword beside the classical column, legal documents and agent review cards laid out in daylight",
-      "what": "The project was renamed: Themis is now Themiz, spelled like the rest of the Olympuz family. Old GitHub links still redirect here, but an existing clone or fork needs `git remote set-url` to follow.\n\nThemiz works next to a lawyer. It reads the file on your computer, builds a case map, hunts practice for you and against you, drafts a document and hands it to a different agent for review. The decisions stay with you, and that is the design, not a disclaimer at the end.",
-      "why": "A good lawyer's time does not go into law. Two hundred pages of scans. Reconciling dates. Checking citations. That one detail that was definitely somewhere in volume three. Themiz takes that part whole and leaves you the part where thinking happens.",
-      "advantage": "the numbers and the text of the law come from a program, not from a model.",
-      "better": "Statutory interest, procedural deadlines, court fees and amounts in words are computed in code. Statutes are quoted from the corpus on your own disk, so a paraphrase cannot quietly replace the article.",
-      "how": "A case moves through stages. Each has its own agents, and no document leaves without a second pair of eyes.",
-      "quick_intro": "You need a Mac for scan recognition, Python 3.11 or newer, Xcode Command Line Tools, and Claude Code.",
-      "quick_extra": "The three lines above are the whole install. `bash install.sh` sets everything up and asks before it installs anything. It needs no agent at all: a plain terminal is enough.\n\n**Claude Code.** Run `claude` in the folder and say `/themiz-setup`. The setup goes as a conversation, one question at a time.\n\n**Codex CLI.** Run `codex` in the same folder. The same agents and the same rules are already inside the project.\n\n**VS Code or Cursor.** Open the folder with `code .` and start your agent inside the editor.\n\n**No agent at all.** `python3 cockpit/app.py` opens the local dashboard at `http://127.0.0.1:8800`, where you can read a case, follow deadlines and collect a document by hand.\n\nNo Git? Take [the ZIP](https://github.com/zarubinvibe/themiz/archive/refs/heads/main.zip) and unpack it. The install is the same.",
-      "quick_result": "the setup asks about your practice one question at a time, downloads the codes you need first, and ends by testing itself on a real document of yours.",
+      "tagline": "A working system for a Russian court case: source files, a case map, checked citations, a draft, and a separate review.",
+      "hero_alt": "Pantheon illustration of Themiz in white marble beside a classical column, with case papers and review cards",
+      "what": "Themiz is a workspace for lawyers handling disputes under Russian law. It keeps each matter in its own folder, reads local files, assembles the facts, searches approved sources, and carries a draft through review. You can run the same project with Codex CLI or Claude Code.\n\nThe public repository contains the engine, agents, tests, and safe templates. It does not contain a ready-made legal corpus or anyone's case files. You choose the sources, permissions, and model provider before using it with client material.",
+      "why": "Case work gets buried under small, expensive chores: reading another scan, reconciling dates, finding the source of a quotation, checking whether the draft still matches the evidence. Themiz keeps those chores attached to one case and records what passed, what failed, and what still needs a lawyer.\n\nIt is built for Russian litigation. Its document contracts, statutory calculations, court terminology, and source routes follow Russian procedure; they are not a general legal system for every jurisdiction.",
+      "advantage": "a claim can keep its trail back to the file, source, and review status.",
+      "better": "Code handles supported calculations such as statutory interest, procedural dates, court fees, and amounts in words. The citation tool reads from the corpus available on your disk, checks its checksum, and warns when freshness is missing or needs review. A model does not get to turn a paraphrase into a verified article.",
+      "how": "The seven stages below are a working order, not seven mandatory swarms. A narrow matter with no more than six text or already recognised files can use the FAST route. A complex matter, disputed reading, or a large scan bundle uses FULL readers and reconciliation. The Pantheon scenes illustrate that order; they are not screenshots of the interface.",
+      "quick_intro": "For the verified macOS path you need Python 3.11 or newer and Xcode Command Line Tools. Apple Vision scan recognition runs on macOS. Codex CLI and Claude Code are equal alternatives; use the one you have configured.",
+      "quick_extra": "The shared block only installs the project and activates its Python environment. Then choose one agent client. Do not run both commands as one setup sequence.\n\n**Option A: Codex CLI**\n\n```bash\ncodex\n```\n\nAsk Codex to set up Themiz for your practice.\n\n**Option B: Claude Code**\n\n```bash\nclaude\n```\n\nIn Claude Code, run `/themiz-setup`.\n\nTo open the folder in an editor:\n\n```bash\ncode .\n```\n\nFirst create the case with an agent. Replace `cases/client/case` with the actual path of an existing case folder. This command gives a summary of that specific case, not a general runtime overview:\n\n```bash\npython3 scripts/themiz_status.py cases/client/case --brief\n```\n\nThe optional browser cockpit starts with:\n\n```bash\n.venv/bin/python cockpit/app.py\n```\n\nThe cockpit opens locally at `http://127.0.0.1:8800`. Its agent actions currently call Claude Code; for Codex work, use Codex CLI or your editor. No Git? Download the [ZIP](https://github.com/zarubinvibe/themiz/archive/refs/heads/main.zip) and follow the same install steps.",
+      "quick_result": "an installed workspace with both CLI configurations, safe starter templates, and a status command. Configure your model access and approved legal sources before opening a live case.",
+      "compare_header": ["Product", "Purpose", "Legal sources", "Case documents", "Drafting", "Review"],
       "compare": [
-        [
-          "**Themiz**",
-          "Multi-agent assistant for one case",
-          "On your Mac",
-          "Yes, locally",
-          "Yes, both sides",
-          "Yes, to the case contract",
-          "A second agent, a separate role",
-          "Free for an individual lawyer"
-        ],
-        [
-          "Doing it by hand",
-          "A lawyer and a folder",
-          "With you",
-          "You read them yourself",
-          "As much as the week allows",
-          "Yes",
-          "You do",
-          "Your hours"
-        ],
-        [
-          "ConsultantPlus, Garant",
-          "Russian legal reference systems",
-          "Not for case material",
-          "No",
-          "Search across statutes and practice",
-          "Templates",
-          "You do",
-          "Subscription"
-        ],
-        [
-          "Sudact, the court card index",
-          "Open search of court acts",
-          "Not for case material",
-          "No",
-          "Search of acts",
-          "No",
-          "You do",
-          "Free"
-        ],
-        [
-          "ChatGPT, Claude as they come",
-          "A general chat assistant",
-          "In the vendor's cloud",
-          "If you attach the file",
-          "From the model's memory",
-          "Yes",
-          "You do",
-          "Subscription"
-        ],
-        [
-          "Harvey, CoCounsel",
-          "Legal AI for firms",
-          "In the vendor's cloud",
-          "Yes",
-          "Yes, for their own jurisdictions",
-          "Yes",
-          "Depends on the plan",
-          "Enterprise contract"
-        ],
-        [
-          "Doczilla, FreshDoc",
-          "Document assembly",
-          "In the vendor's cloud",
-          "No",
-          "No",
-          "Yes, from a template",
-          "You do",
-          "Subscription"
-        ]
+        ["**Themiz**", "Workflow for a Russian court case", "Local corpus and approved external sources, with source status", "Local extraction; you decide what the chosen model provider receives", "Procedural documents under the case contract", "Separate reviewer and mechanical gates; the lawyer decides whether to file"],
+        ["Manual work", "A lawyer works from the case folder", "The lawyer checks primary sources", "The lawyer reads the originals", "The lawyer writes", "Full responsibility stays with the lawyer"],
+        ["[ConsultantPlus](https://www.consultant.ru/about/software/cons/)", "Russian legal reference system", "Legislation, case law, and commentary", "Documents supplied by the system; arbitrary case-file upload was not verified", "Contract and local-document tools depend on the package", "The system flags risks; the user chooses"],
+        ["[Garant](https://udalenka.garant.ru/)", "Legal information and support", "Legal database, encyclopaedia, and expert materials", "Document and approval tools depend on the connected services", "Not confirmed on the reviewed product page", "Organisation and expert help; the user decides"],
+        ["[ChatGPT](https://help.openai.com/en/articles/9260256)", "General AI assistant", "Search and deep research depend on settings and plan; no dedicated Russian-law corpus is claimed here", "Supports uploaded PDFs, presentations, and text files", "Drafting, rewriting, and summarising", "No legal acceptance is claimed; the user reviews the result"],
+        ["[Claude](https://claude.com/product/overview)", "General AI assistant", "Web search and connections are available by setup; no dedicated Russian-law corpus is claimed here", "Works with PDFs, Word, Excel, and images", "Drafting, editing, and polishing", "Can evaluate a draft; legal certification is not claimed and the user remains in control"]
       ],
-      "glossary": [
-        [
-          "Case map",
-          "One file that holds parties, dates, claims, and evidence"
-        ],
-        [
-          "Agent",
-          "One assistant with a narrow job, such as reading scans or hunting case law"
-        ]
-      ],
+      "compare_note": "Product names belong to their owners. This is a scope map, not a benchmark. Features and access can vary by service, plan, region, and configuration; follow the linked product pages for current details.",
+      "glossary": [["Case map", "A file that connects parties, dates, claims, evidence, and open conflicts"], ["Agent", "An assistant role with one bounded job, such as reading a document or reviewing a draft"], ["LKG", "The last known good local copy, kept readable when a source refresh fails"]],
       "safety": [
-        "Reading and recognition run on your computer; client folders are closed from publication at the repository level.",
-        "Case law search sends a depersonalised request, never the case file.",
-        "A cloud check of a single page is allowed only when local recognition returns nothing or a critical detail must be confirmed. There is no silent switch to the cloud.",
-        "Telegram reminders use your own bot and carry dates and the word \"done\": no names, case numbers, or amounts.",
-        "A personal-data guard runs on every commit, and a separate guard refuses to erase case material.",
-        "Document format is checked before filing, and assembly before review is refused."
+        "Files, OCR, extraction caches, and the case workspace stay on your computer. Text sent to an agent is processed under the terms of your chosen model provider; set that boundary before using client material.",
+        "The public release excludes case folders and the private legal corpus. A personal-data guard checks commits for known patterns, which reduces accidental publication risk but cannot prove that every possible leak is impossible.",
+        "External legal research uses approved channels and a depersonalised query rather than the case file. A cloud check of a difficult page requires an explicit fallback; there is no silent switch from local OCR.",
+        "Telegram is optional and off until you configure your own bot. Once enabled, permitted reminder data leaves your computer for Telegram.",
+        "Mechanical checks cover supported formats, checksums, calculations, and workflow states. They do not certify the law, the evidence, or the final litigation decision."
       ],
-      "safety_tail": "Before putting client material on a shared computer, read [SECURITY.md](SECURITY.md).",
-      "status": "Status: in development, built to work under a lawyer's control. The main path runs through Claude Code.",
+      "safety_tail": "Before using a shared computer or sending client text to a model, read [SECURITY.md](SECURITY.md) and set the permissions for your practice.",
+      "status": "Themiz is in development and is designed for work under a lawyer's control. Codex CLI and Claude Code are equal launch paths. The technical contracts and a clean macOS installation are tested; an end-to-end court matter and clean Windows or Linux installation are not certified.",
       "limits": [
-        "Local scan recognition depends on Apple Vision and works on macOS only. Text PDF, DOCX, and XLSX are read on other systems too.",
-        "Case law search depends on an external source and is sometimes unavailable.",
-        "A red gate or a missing agent stops the workflow instead of guessing.",
-        "Themiz does not represent you, does not sign anything, and does not replace a lawyer's judgement.",
-        "A clean install on Windows and Linux has not been verified yet."
+        "Apple Vision recognition for scans and images works on macOS only. Text formats use Python tools, but the complete Windows and Linux setup has not been verified.",
+        "DOCX, text PDF, PPTX, and XLSX conversion passed isolated cold-install checks. Legacy XLS has a configured reader but did not receive the same synthetic conversion check.",
+        "Legal research and corpus refresh depend on external sources. An unavailable source remains unavailable; it is not replaced with a model guess.",
+        "The public clone starts with the engine and templates, not a populated legal corpus. After local data is present, Themiz can build a separate legal graph with source and freshness markers. The bundled Graphify files describe the codebase, not your legal corpus.",
+        "The background loader checks approved public sources independently of model subscription quotas. It keeps the last known good local copy when a refresh fails. Weekly maintenance uses factual Codex reset events for its own cycle and does not impose USD caps or manage every provider's plan.",
+        "Local OCR, extraction, calculations, and background downloads do not require a paid model API call. Agent analysis still uses the account or subscription of the model provider you choose.",
+        "A separate reviewer and a green workflow status do not make a document court-ready. You verify the facts and law, decide whether to file, sign the document, and remain responsible for the case."
       ],
-      "docs": "Deeper: [how it really works](docs/HOW-IT-WORKS.ru.md), in Russian and without advertising, and [the full reference](docs/DETAILS.md) with the agent roster.",
-      "license": "Themiz Community Licence 1.0: free for an individual lawyer, including private practice. Organisations need a commercial licence. See [LICENSE](LICENSE) and [LICENSE.ru.md](LICENSE.ru.md).",
-      "welcome": "Hello. I am Fil.\n\nI built Themiz for myself: I was tired of losing evenings to the mechanical part of a case — two hundred pages of scans, dates to reconcile, citations to check. If it turns out to be useful to you too, I am glad.\n\nPlease try it. If something breaks, open an issue — I read them. If you like it, star the repository and tell a colleague who still does all of this by hand. And take a look at the other Olympuz projects: https://zarubinvibe.com",
-      "compare_header": [
-        "Option",
-        "What it is",
-        "Where the case file lives",
-        "Reads your scans",
-        "Practice for and against",
-        "Drafts the document",
-        "Who checks the result",
-        "Price"
-      ],
-      "compare_note": "Names belong to their owners. The table describes what each option is built for, not a benchmark: other products change, and this page does not promise on their behalf."
+      "docs": "Read [how the workflow works](docs/HOW-IT-WORKS.ru.md) and the [agent reference](docs/DETAILS.md). Both explain the machinery in more detail; the workflow guide is currently in Russian.",
+      "license": "Themiz Community Licence 1.0 permits free use by an individual lawyer, including private practice. Organisations need a commercial licence. Model subscriptions and third-party services are separate. See [LICENSE](LICENSE) and [LICENSE.ru.md](LICENSE.ru.md).",
+      "welcome": "Hello, I am Fil.\n\nI built Themiz because evenings kept disappearing into the mechanical part of a case: scans, dates, citations, and another pass through the same bundle. I wanted one workspace that remembers where a fact came from and says plainly when a check did not happen.\n\nTry it on a copy of a non-sensitive file first. If something breaks, open an issue with the command you ran and the result you saw. If it earns a place in your practice, star the repository and have a look at the other Olympuz projects: https://zarubinvibe.com"
     },
     "ru": {
-      "title": "Фемида",
-      "name": "Фемида",
-      "tagline": "Фемида берет на себя механику судебного дела: читает материалы, ищет практику и проверяет собственные документы.",
-      "hero_alt": "Фемида из белого мрамора с весами и мечом у классической колонны, документы дела и карточки проверки агентов в дневном свете",
-      "what": "Проект переименован: Themis теперь Themiz — как и остальные имена семейства Олимпуса. Прежние ссылки на GitHub переадресуются сюда, но клону или форку нужен `git remote set-url`, чтобы поехать следом.\n\nФемида работает рядом с юристом. Она читает материалы у вас на компьютере, собирает карту дела, ищет практику за вас и против вас, готовит документ и отдает его на проверку другому агенту. Решения остаются за вами, и это не оговорка в конце, а устройство.",
-      "why": "У хорошего юриста время уходит не на право. Двести страниц сканов. Сверка дат. Проверка ссылок. Та самая деталь, которая точно была где-то в третьем томе. Эту часть Фемида забирает целиком, а вам оставляет ту, где нужно думать.",
-      "advantage": "цифры и текст закона выдает программа, а не модель.",
-      "better": "Проценты по 395-й, процессуальные сроки, госпошлина и сумма прописью считаются кодом. Нормы цитируются из корпуса на вашем диске, поэтому пересказ не подменит текст статьи незаметно.",
-      "how": "Дело идет по стадиям. У каждой свои агенты, и ни один документ не выходит без вторых глаз.",
-      "quick_intro": "Нужен Mac для распознавания сканов, Python 3.11 или новее, Xcode Command Line Tools и Claude Code.",
-      "quick_extra": "Три строки выше — это вся установка. `bash install.sh` ставит все сам и спрашивает разрешение перед каждым шагом. Никакой агент ему не нужен: хватает обычного терминала.\n\n**Claude Code.** Запустите `claude` в этой папке и скажите `/themiz-setup`. Установка пройдет разговором, по одному вопросу.\n\n**Codex CLI.** Запустите `codex` в той же папке. Те же агенты и те же правила уже лежат внутри проекта.\n\n**VS Code или Cursor.** Откройте папку командой `code .` и запустите своего агента прямо в редакторе.\n\n**Совсем без агента.** `python3 cockpit/app.py` откроет локальную панель на `http://127.0.0.1:8800`: там можно читать дело, следить за сроками и собирать документ руками.\n\nНет Git? Возьмите [ZIP](https://github.com/zarubinvibe/themiz/archive/refs/heads/main.zip) и распакуйте. Установка та же.",
-      "quick_result": "установка спрашивает о вашей практике по одному вопросу, первыми качает нужные вам кодексы и в конце проверяет себя на вашем настоящем документе.",
+      "title": "Themiz",
+      "name": "Themiz",
+      "tagline": "Рабочая система для российского судебного дела: исходники, карта фактов, проверяемые цитаты, черновик и отдельная рецензия.",
+      "hero_alt": "Иллюстрация Pantheon: Themiz из белого мрамора у классической колонны, рядом материалы дела и карточки рецензии",
+      "what": "Themiz помогает юристу вести споры по российскому праву. Каждое дело живет в своей папке: проект читает локальные файлы, собирает факты, ищет по разрешенным источникам и проводит черновик через отдельную рецензию. Запустить тот же проект можно через Codex CLI или Claude Code.\n\nПубличный репозиторий содержит движок, агентов, тесты и безопасные шаблоны. Готового нормативного корпуса и чужих дел там нет. До работы с материалами доверителя ты сам выбираешь источники, разрешения и поставщика модели.",
+      "why": "Судебное дело быстро вязнет в мелкой, дорогой работе: прочитать еще один скан, свести даты, найти источник цитаты, проверить черновик по доказательствам. Themiz держит эти действия внутри одного дела и показывает, что прошло проверку, где случился сбой и что осталось юристу.\n\nПроект сделан для российской судебной практики. Контракты документов, расчетные приборы, терминология и маршруты источников опираются на российский процесс. Это не универсальная правовая система для любой юрисдикции.",
+      "advantage": "у факта и цитаты остается путь к исходнику, источнику и статусу проверки.",
+      "better": "Код считает поддерживаемые величины: проценты, процессуальные сроки, госпошлину и сумму прописью. Цитатор берет норму из корпуса на твоем диске, сверяет контрольную сумму и предупреждает, если свежесть не доказана. Пересказ модели не превращается в проверенный текст статьи.",
+      "how": "Семь шагов ниже задают порядок работы, а не семь обязательных роев. Для узкого вопроса и не более шести текстовых или уже распознанных файлов подходит FAST. Сложный спор, неоднозначное чтение или большая пачка сканов требует FULL с отдельными читателями и сверкой. Сцены Pantheon показывают последовательность; это иллюстрации, а не снимки интерфейса.",
+      "quick_intro": "Для проверенного пути на macOS нужны Python 3.11 или новее и Xcode Command Line Tools. Распознавание сканов через Apple Vision работает на macOS. Codex CLI и Claude Code равноправны: выбери настроенный клиент.",
+      "quick_extra": "Общий блок только устанавливает проект и включает его Python-окружение. Дальше выбери один агентный клиент. Не запускай обе команды как части одной установки.\n\n**Вариант A: Codex CLI**\n\n```bash\ncodex\n```\n\nПопроси Codex настроить Themiz под твою практику.\n\n**Вариант B: Claude Code**\n\n```bash\nclaude\n```\n\nВ Claude Code запусти `/themiz-setup`.\n\nОткрыть папку в редакторе:\n\n```bash\ncode .\n```\n\nСначала создай дело с агентом. Вместо `cases/client/case` подставь фактический путь существующей папки дела. Эта команда дает сводку конкретного дела, а не общий обзор состояния программы:\n\n```bash\npython3 scripts/themiz_status.py cases/client/case --brief\n```\n\nНеобязательная панель в браузере:\n\n```bash\n.venv/bin/python cockpit/app.py\n```\n\nПанель откроется локально на `http://127.0.0.1:8800`. Ее агентные действия пока вызывают Claude Code; для работы через Codex используй Codex CLI или редактор. Нет Git? Скачай [ZIP](https://github.com/zarubinvibe/themiz/archive/refs/heads/main.zip) и выполни те же шаги.",
+      "quick_result": "установленная рабочая папка с конфигурациями обоих CLI, безопасными начальными шаблонами и командой статуса. До живого дела настрой доступ к модели и разрешенные правовые источники.",
+      "compare_header": ["Продукт", "Назначение", "Правовые источники", "Материалы дела", "Черновик", "Проверка"],
       "compare": [
-        [
-          "**Фемида**",
-          "Многоагентный помощник по одному делу",
-          "На вашем Mac",
-          "Да, локально",
-          "Да, обе стороны",
-          "Да, по контракту дела",
-          "Второй агент, отдельная роль",
-          "Частному юристу бесплатно"
-        ],
-        [
-          "Делать руками",
-          "Юрист и папка",
-          "У вас",
-          "Вы читаете сами",
-          "Сколько успеете за неделю",
-          "Да",
-          "Вы сами",
-          "Ваши часы"
-        ],
-        [
-          "КонсультантПлюс, Гарант",
-          "Справочные правовые системы",
-          "Не для материалов дела",
-          "Нет",
-          "Поиск по нормам и практике",
-          "Шаблоны",
-          "Вы сами",
-          "Подписка"
-        ],
-        [
-          "Судакт, картотека суда",
-          "Открытый поиск судебных актов",
-          "Не для материалов дела",
-          "Нет",
-          "Поиск актов",
-          "Нет",
-          "Вы сами",
-          "Бесплатно"
-        ],
-        [
-          "ChatGPT, Claude как есть",
-          "Общий чат-помощник",
-          "В облаке поставщика",
-          "Если приложите файл",
-          "По памяти модели",
-          "Да",
-          "Вы сами",
-          "Подписка"
-        ],
-        [
-          "Harvey, CoCounsel",
-          "Юридический AI для фирм",
-          "В облаке поставщика",
-          "Да",
-          "Да, по своим юрисдикциям",
-          "Да",
-          "Зависит от тарифа",
-          "Корпоративный договор"
-        ],
-        [
-          "Doczilla, FreshDoc",
-          "Конструкторы документов",
-          "В облаке поставщика",
-          "Нет",
-          "Нет",
-          "Да, по шаблону",
-          "Вы сами",
-          "Подписка"
-        ]
+        ["**Themiz**", "Workflow российского судебного дела", "Локальный корпус и разрешенные внешние источники со статусом", "Локальное извлечение; ты решаешь, что получит поставщик модели", "Процессуальные документы по контракту дела", "Отдельный рецензент и механические гейты; решение о подаче принимает юрист"],
+        ["Работа вручную", "Юрист работает с папкой дела", "Юрист сам сверяет первоисточники", "Юрист читает оригиналы", "Юрист пишет сам", "Полный контроль и ответственность юриста"],
+        ["[КонсультантПлюс](https://www.consultant.ru/about/software/cons/)", "Справочная правовая система", "Законодательство, практика и комментарии", "Документы системы; произвольная загрузка дела не подтверждена", "Конструктор договоров и локальных документов зависит от комплекта", "Система подсвечивает риски; решение принимает пользователь"],
+        ["[ГАРАНТ](https://udalenka.garant.ru/)", "Правовое обеспечение", "Правовая база, Энциклопедия и экспертные материалы", "Работа с документами и согласованием зависит от подключенных сервисов", "На проверенной странице не подтвержден", "Организация работы и экспертная помощь; решение принимает пользователь"],
+        ["[ChatGPT](https://help.openai.com/en/articles/9260256)", "Универсальный AI-помощник", "Search и deep research зависят от настроек и тарифа; специальный корпус права РФ здесь не заявлен", "Принимает PDF, презентации и текстовые файлы", "Пишет, переписывает и сокращает", "Юридическая приемка не заявлена; результат проверяет пользователь"],
+        ["[Claude](https://claude.com/product/overview)", "Универсальный AI-помощник", "Веб-поиск и подключения зависят от настройки; специальный корпус права РФ здесь не заявлен", "Работает с PDF, Word, Excel и изображениями", "Пишет и редактирует", "Может оценить черновик, но не сертифицирует право; контроль остается у пользователя"]
       ],
-      "glossary": [
-        [
-          "Case map",
-          "Один файл, где собраны стороны, даты, требования и доказательства"
-        ],
-        [
-          "Agent",
-          "Один помощник с узкой задачей: читать сканы или искать практику"
-        ]
-      ],
+      "compare_note": "Названия принадлежат их владельцам. Это карта назначения, а не рейтинг. Возможности и доступ зависят от сервиса, тарифа, региона и настройки; актуальные условия смотри на страницах по ссылкам.",
+      "glossary": [["Карта дела", "Файл, который связывает стороны, даты, требования, доказательства и открытые противоречия"], ["Агент", "Роль с одной ограниченной задачей: например, прочитать документ или проверить черновик"], ["LKG", "Последняя рабочая локальная копия, доступная даже после сбоя обновления источника"]],
       "safety": [
-        "Чтение и распознавание идут на вашем компьютере, папки доверителей закрыты от публикации на уровне репозитория.",
-        "Поиск практики отправляет обезличенный запрос, а не материалы дела.",
-        "Облачная проверка одной страницы допустима, только если локальное распознавание вернуло пустоту или нужно подтвердить критичный реквизит. Молчаливого переключения в облако нет.",
-        "Напоминания в Telegram идут через вашего бота и несут даты и слово «готово»: без фамилий, номеров дел и сумм.",
-        "Сторож персональных данных проходит по каждому коммиту, а отдельный сторож не дает стереть материалы дела.",
-        "Формат документа проверяется перед подачей, а собрать документ раньше проверки нельзя."
+        "Файлы, OCR, кеш извлечения и рабочая папка дела остаются на твоем компьютере. Текст, который ты передаешь агенту, обрабатывает выбранный поставщик модели по своим условиям; задай эту границу до работы с материалами доверителя.",
+        "Публичная версия исключает папки дел и частный нормативный корпус. ПД-сторож ищет известные шаблоны в коммитах и снижает риск случайной публикации, но не доказывает невозможность любой утечки.",
+        "Внешний поиск практики идет по разрешенным каналам с обезличенным запросом, а не с материалами дела. Облачная проверка сложной страницы требует явного перехода; локальный OCR не переключается в облако молча.",
+        "Telegram необязателен и выключен, пока ты не настроишь своего бота. После включения разрешенные данные напоминаний уходят в Telegram.",
+        "Механические проверки охватывают поддерживаемые форматы, контрольные суммы, расчеты и статусы workflow. Они не удостоверяют право, доказательства и итоговое решение по спору."
       ],
-      "safety_tail": "Прежде чем класть материалы доверителя на общий компьютер, прочитайте [SECURITY.md](SECURITY.md).",
-      "status": "Статус: в разработке, рассчитана на работу под контролем юриста. Основной путь идет через Claude Code.",
+      "safety_tail": "Перед работой на общем компьютере или передачей текста доверителя модели прочитай [SECURITY.ru.md](SECURITY.ru.md) и задай правила для своей практики.",
+      "status": "Themiz развивается и рассчитан на работу под контролем юриста. Codex CLI и Claude Code равноправны. Технические контракты и чистая установка на macOS проверяются тестами; полный судебный E2E и чистая установка на Windows или Linux не сертифицированы.",
       "limits": [
-        "Локальное распознавание сканов зависит от Apple Vision и работает только на macOS. Текстовые PDF, DOCX и XLSX читаются и на других системах.",
-        "Поиск практики зависит от внешнего источника и иногда недоступен.",
-        "Красный гейт или отсутствующий агент останавливает workflow, а не додумывает за вас.",
-        "Фемида не представляет ваши интересы, ничего не подписывает и не заменяет суждение юриста.",
-        "Чистая установка на Windows и Linux пока не проверена."
+        "Apple Vision распознает сканы и изображения только на macOS. Текстовые форматы читают Python-инструменты, но полная установка на Windows и Linux не проверена.",
+        "DOCX, текстовый PDF, PPTX и XLSX прошли отдельные проверки после чистой установки. Для старого XLS настроен reader, но такой же синтетической конвертации не было.",
+        "Поиск практики и обновление корпуса зависят от внешних источников. Недоступный источник остается недоступным, модель не подменяет его догадкой.",
+        "Публичный клон содержит движок и шаблоны, а не заполненный нормативный корпус. Когда локальные данные появились, Themiz строит отдельный правовой граф с источниками и отметками свежести. Поставляемый Graphify-граф описывает код проекта, а не твой корпус.",
+        "Фоновый загрузчик проверяет разрешенные публичные источники независимо от квоты модели и сохраняет последнюю рабочую копию при сбое. Недельное обслуживание использует фактические события сброса Codex для своего цикла, не вводит лимиты в долларах и не управляет тарифами всех поставщиков.",
+        "Локальные OCR, извлечение, расчеты и фоновые загрузки не требуют отдельного платного вызова API модели. Агентный анализ использует аккаунт или подписку выбранного поставщика.",
+        "Отдельная рецензия и зеленый статус workflow не делают документ готовым к суду автоматически. Ты сверяешь факты и право, принимаешь решение о подаче, подписываешь документ и отвечаешь за дело."
       ],
-      "docs": "Глубже: [как я работаю на самом деле](docs/HOW-IT-WORKS.ru.md) без рекламы и [полный разбор](docs/DETAILS.ru.md) с составом агентов.",
-      "license": "Themiz Community Licence 1.0: частному юристу бесплатно, включая личную практику. Организации нужна коммерческая лицензия. Тексты в [LICENSE.ru.md](LICENSE.ru.md) и [LICENSE](LICENSE).",
-      "welcome": "Привет. Я Фил.\n\nЯ сделал Фемиду для себя: надоело терять вечера на механику дела — двести страниц сканов, сверка дат, проверка ссылок. Если она пригодится и вам, я буду рад.\n\nПопробуйте. Что-то сломается — напишите в Issues, я их читаю. Понравится — поставьте звезду и расскажите знакомому юристу, который до сих пор делает это руками. И загляните в остальные проекты Олимпуса: https://zarubinvibe.ru",
-      "compare_header": [
-        "Вариант",
-        "Что это",
-        "Где лежат материалы дела",
-        "Читает ваши сканы",
-        "Практика за вас и против",
-        "Готовит документ",
-        "Кто проверяет результат",
-        "Цена"
-      ],
-      "compare_note": "Названия принадлежат их владельцам. Таблица описывает назначение, а не замер: чужие продукты меняются, и обещать за них эта страница не берется."
+      "docs": "Подробности: [как устроен workflow](docs/HOW-IT-WORKS.ru.md) и [справочник агентов](docs/DETAILS.ru.md).",
+      "license": "Themiz Community Licence 1.0 разрешает бесплатное использование частному юристу, включая личную практику. Организации нужна коммерческая лицензия. Подписка модели и сторонние сервисы оплачиваются отдельно. Условия: [LICENSE.ru.md](LICENSE.ru.md) и [LICENSE](LICENSE).",
+      "welcome": "Привет, я Фил.\n\nЯ сделал Themiz, потому что вечера уходили на механику дела: сканы, даты, ссылки и новый проход по той же папке. Хотелось одного рабочего места, которое помнит источник факта и прямо говорит, когда проверка не состоялась.\n\nСначала попробуй проект на копии файла без чувствительных данных. Если что-то сломается, открой issue и приложи команду с результатом. Если Themiz приживется в твоей практике, поставь репозиторию звезду и загляни в другие проекты Olympuz: https://zarubinvibe.ru"
     },
     "zh": {
       "title": "Themiz",
       "name": "Themiz",
-      "tagline": "忒弥斯把办案的机械活从你桌上拿走：读卷宗、找判例，还检查自己写的文书。",
-      "hero_alt": "白色大理石的忒弥斯手持天平与放下的剑，站在古典石柱旁，案卷与审阅卡片摊在日光里",
-      "what": "项目已改名：Themis 现在叫 Themiz，与 Olympuz 家族其他项目写法一致。旧的 GitHub 链接仍会跳转到这里，但已克隆或 fork 的仓库需要执行 `git remote set-url` 才能跟上。\n\n忒弥斯在律师旁边干活。她在你的电脑上读材料，搭出案件地图，找对你有利和不利的判例，起草文书，再交给另一个智能体审阅。决定仍然归你，这是它的构造，不是结尾处的一句免责。",
-      "why": "好律师的时间并没有花在法律上。两百页扫描件。核对日期。检查引用。还有那个一定在第三卷某处的细节。这部分忒弥斯整块拿走，把需要思考的那部分留给你。",
-      "advantage": "数字和法条原文由程序给出，不是由模型给出。",
-      "better": "法定利息、诉讼期限、国家规费和金额大写都由代码计算。法条从你自己硬盘上的语料里逐字引用，所以转述不会悄悄换掉条文。",
-      "how": "案件按阶段推进。每个阶段有自己的智能体，任何文书都不会没经过第二双眼睛就出门。",
-      "quick_intro": "需要一台 Mac 来识别扫描件，还要 Python 3.11 以上、Xcode 命令行工具和 Claude Code。",
-      "quick_extra": "上面三行就是全部安装。`bash install.sh` 会把一切装好，并且在装任何东西之前先征求同意。它完全不需要智能体，一个普通终端就够了。\n\n**Claude Code。** 在该目录运行 `claude`，再说 `/themiz-setup`。安装会以对话方式进行，一次问一个问题。\n\n**Codex CLI。** 在同一个目录运行 `codex`。同样的智能体和同样的规则已经在项目里了。\n\n**VS Code 或 Cursor。** 用 `code .` 打开目录，在编辑器里启动你的智能体。\n\n**完全不用智能体。** `python3 cockpit/app.py` 会在 `http://127.0.0.1:8800` 打开本地面板，你可以在那里读案卷、盯期限、手工生成文书。\n\n没有 Git？拿 [ZIP](https://github.com/zarubinvibe/themiz/archive/refs/heads/main.zip) 解压即可。安装步骤一样。",
-      "quick_result": "安装会一次一个问题地了解你的执业方向，先下你最需要的法典，最后用你自己的真实文书自检一遍。",
+      "tagline": "为俄罗斯诉讼准备的一套工作系统：原始材料、案件地图、可核对的引用、文书草稿和独立复核。",
+      "hero_alt": "Pantheon 插画：白色大理石的 Themiz 站在古典石柱旁，身边是案卷和复核卡片",
+      "what": "Themiz 面向办理俄罗斯法诉讼的律师。每个案件都有独立目录：系统读取本地文件、整理事实、检索获准来源，并让草稿经过另一个角色复核。你可以用 Codex CLI，也可以用 Claude Code；两条路径地位相同。\n\n公开仓库提供引擎、智能体、测试和安全模板，不附带现成的法律语料，也没有任何人的案件材料。处理当事人资料前，由你选择来源、权限和模型服务商。",
+      "why": "案件工作常被细小却昂贵的机械活拖住：再读一份扫描件、核对日期、找到引文出处、确认草稿仍与证据一致。Themiz 把这些动作留在同一个案件里，并写清哪些检查通过、哪里失败、还有什么必须由律师处理。\n\n它针对俄罗斯诉讼设计。文书契约、法定计算、法院术语和来源路线遵循俄罗斯程序法，不是覆盖所有法域的通用法律系统。",
+      "advantage": "每个事实和引文都能追到文件、来源和复核状态。",
+      "better": "代码处理已支持的计算，包括法定利息、诉讼期限、国家规费和金额大写。引用工具从你硬盘上已有的语料取法条，核对校验和；来源时效未证实或需要复核时，它会警告。模型的转述不会被当成已核验的条文。",
+      "how": "下面七步表示工作顺序，不等于每个案件都要启动七组智能体。问题窄、材料不超过六份且已有文本或 OCR 时，可以走 FAST；复杂争议、阅读存在分歧或扫描件很多时，走 FULL，并启用分工阅读与交叉核对。下方 Pantheon 场景只是流程插画，不是界面截图。",
+      "quick_intro": "已验证的 macOS 路径需要 Python 3.11 或更高版本以及 Xcode Command Line Tools。Apple Vision 扫描识别只在 macOS 上运行。Codex CLI 和 Claude Code 是并列选项，请使用你已配置的那一个。",
+      "quick_extra": "公共代码块只负责安装项目并激活 Python 环境。接着从两个智能体客户端中选一个，不要把两条命令当作连续安装步骤。\n\n**选项 A：Codex CLI**\n\n```bash\ncodex\n```\n\n让 Codex 按你的执业方式配置 Themiz。\n\n**选项 B：Claude Code**\n\n```bash\nclaude\n```\n\n在 Claude Code 中运行 `/themiz-setup`。\n\n用编辑器打开目录：\n\n```bash\ncode .\n```\n\n先让智能体创建案件。将 `cases/client/case` 替换为现有案件文件夹的实际路径。这条命令只汇总该具体案件，不是通用运行环境概览：\n\n```bash\npython3 scripts/themiz_status.py cases/client/case --brief\n```\n\n可选的浏览器面板：\n\n```bash\n.venv/bin/python cockpit/app.py\n```\n\n面板会在 `http://127.0.0.1:8800` 本地打开。它的智能体操作目前调用 Claude Code；使用 Codex 时，请从 Codex CLI 或编辑器启动。没有 Git？下载 [ZIP](https://github.com/zarubinvibe/themiz/archive/refs/heads/main.zip)，安装步骤相同。",
+      "quick_result": "一套已安装的工作目录，内含两个 CLI 的配置、安全起始模板和状态命令。打开真实案件前，请配置模型访问权限和获准法律来源。",
+      "compare_header": ["产品", "用途", "法律来源", "案件材料", "起草", "复核"],
       "compare": [
-        [
-          "**忒弥斯**",
-          "针对单个案件的多智能体助手",
-          "在你的 Mac 上",
-          "是，本地识别",
-          "是，正反两面",
-          "是，按案件契约",
-          "另一个智能体，独立角色",
-          "个人律师免费"
-        ],
-        [
-          "自己动手",
-          "一位律师和一个卷宗",
-          "在你手里",
-          "你自己读",
-          "一周能读多少算多少",
-          "是",
-          "你自己",
-          "你的工时"
-        ],
-        [
-          "ConsultantPlus、Garant",
-          "俄罗斯法律检索系统",
-          "不放案件材料",
-          "否",
-          "检索法条与判例",
-          "模板",
-          "你自己",
-          "订阅"
-        ],
-        [
-          "Sudact、法院案卡",
-          "公开的裁判文书检索",
-          "不放案件材料",
-          "否",
-          "检索裁判文书",
-          "否",
-          "你自己",
-          "免费"
-        ],
-        [
-          "ChatGPT、Claude 原样使用",
-          "通用聊天助手",
-          "在厂商云端",
-          "上传文件才行",
-          "凭模型记忆",
-          "是",
-          "你自己",
-          "订阅"
-        ],
-        [
-          "Harvey、CoCounsel",
-          "面向律所的法律 AI",
-          "在厂商云端",
-          "是",
-          "是，限于其覆盖的法域",
-          "是",
-          "取决于套餐",
-          "企业合同"
-        ],
-        [
-          "Doczilla、FreshDoc",
-          "文书生成工具",
-          "在厂商云端",
-          "否",
-          "否",
-          "是，按模板",
-          "你自己",
-          "订阅"
-        ]
+        ["**Themiz**", "俄罗斯诉讼案件工作流", "本地语料和获准外部来源，并显示来源状态", "本地提取；由你决定模型服务商收到什么", "按案件契约起草诉讼文书", "独立复核角色和机械闸门；是否提交由律师决定"],
+        ["手工处理", "律师直接使用案件目录", "律师自行核对第一手来源", "律师阅读原件", "律师自行写作", "控制和责任都在律师"],
+        ["[ConsultantPlus](https://www.consultant.ru/about/software/cons/)", "俄罗斯法律信息系统", "法律、判例和评论资料", "系统提供的文档；任意案件上传未获本次核实", "合同和本地文档工具取决于所购组件", "系统提示风险，选择由用户作出"],
+        ["[Garant](https://udalenka.garant.ru/)", "法律信息与支持", "法律数据库、百科和专家材料", "文档与审批功能取决于所接服务", "本次核对的产品页面未确认", "工作组织和专家帮助，决定由用户作出"],
+        ["[ChatGPT](https://help.openai.com/en/articles/9260256)", "通用 AI 助手", "搜索和深度研究取决于设置与套餐；此处未声称有俄罗斯法专用语料", "支持上传 PDF、演示文稿和文本文件", "起草、改写和摘要", "未声称提供法律验收，结果由用户复核"],
+        ["[Claude](https://claude.com/product/overview)", "通用 AI 助手", "网页搜索和连接功能取决于配置；此处未声称有俄罗斯法专用语料", "处理 PDF、Word、Excel 和图片", "起草、编辑和润色", "可以评估草稿，但不作法律认证；控制权仍在用户"]
       ],
-      "glossary": [
-        [
-          "Case map",
-          "案件地图：把当事人、日期、诉求和证据放在一起的一份文件"
-        ],
-        [
-          "Agent",
-          "智能体：只负责一件窄活的助手，比如读扫描件或找判例"
-        ]
-      ],
+      "compare_note": "产品名称归各自所有者。此表只说明适用范围，不作排名。功能和访问权限可能因服务、套餐、地区和配置而异；当前信息以链接中的产品页面为准。",
+      "glossary": [["案件地图", "把当事人、日期、诉求、证据和未解决冲突连在一起的文件"], ["智能体", "只承担一项有限任务的助手角色，例如阅读文档或复核草稿"], ["LKG", "最近一次可用的本地副本；来源更新失败时仍可读取"]],
       "safety": [
-        "阅读和识别都在你的电脑上；当事人目录在仓库层面被禁止发布。",
-        "判例检索发出的是去标识化的请求，卷宗不会外传。",
-        "只有当本地识别一无所获，或者必须确认一个关键要素时，才允许对单页做一次云端检查。没有静默切换到云端这回事。",
-        "Telegram 提醒走你自己的机器人，只带日期和“完成”两个字：没有姓名、案号和金额。",
-        "每次提交都会跑个人数据守卫，另一个守卫不允许删除案件材料。",
-        "提交之前会检查文书格式，并且不允许在审阅之前先把文书拼出来。"
+        "文件、OCR、提取缓存和案件目录保存在你的电脑上。你交给智能体的文字会按所选模型服务商的条款处理；使用当事人资料前，请先划定这条边界。",
+        "公开版本排除案件目录和私人法律语料。个人数据守卫会在提交中检查已知模式，降低误发布风险，但不能证明任何形式的泄露都绝不可能。",
+        "外部判例检索只走获准渠道，发送去标识化查询，不发送案卷。难读页面转交云端检查必须明确触发，本地 OCR 不会静默切换到云端。",
+        "Telegram 是可选功能，配置你自己的机器人前保持关闭。启用后，获准的提醒数据会离开电脑并发送给 Telegram。",
+        "机械检查覆盖已支持的格式、校验和、计算和工作流状态，不为法律、证据或最终诉讼决定作认证。"
       ],
-      "safety_tail": "把当事人材料放到共用电脑之前，请先读 [SECURITY.md](SECURITY.md)。",
-      "status": "状态：开发中，按照律师全程掌控来设计。主路径走 Claude Code。",
+      "safety_tail": "在共用电脑上处理资料，或把当事人文字交给模型前，请阅读 [SECURITY.zh.md](SECURITY.zh.md)，并为你的执业设定权限。",
+      "status": "Themiz 仍在开发，由律师掌握最终控制。Codex CLI 与 Claude Code 是平等的启动路径。技术契约和 macOS 全新安装已有测试；完整真实案件流程以及 Windows、Linux 全新安装尚未认证。",
       "limits": [
-        "本地扫描件识别依赖 Apple Vision，只在 macOS 上可用。文本 PDF、DOCX 和 XLSX 在其他系统上也能读。",
-        "判例检索依赖外部来源，有时会不可用。",
-        "闸门变红或者少了某个智能体，工作流会停下，而不是替你猜。",
-        "Themiz 不代表你出面，不签任何东西，也不代替律师的判断。",
-        "Windows 和 Linux 上的干净安装还没有验证过。"
+        "Apple Vision 只在 macOS 上识别扫描件和图片。文本格式由 Python 工具处理，但 Windows 和 Linux 的完整安装尚未验证。",
+        "DOCX、文本 PDF、PPTX 和 XLSX 已在全新安装后分别通过转换检查。旧式 XLS 已配置 reader，但没有接受同样的合成转换测试。",
+        "判例检索和语料更新依赖外部来源。来源不可用时就保持不可用，不会用模型猜测补位。",
+        "公开克隆包含引擎和模板，不含已经填充的法律语料。本地数据就绪后，Themiz 可以建立独立法律图谱，保留来源和时效标记。仓库附带的 Graphify 图描述代码，而不是你的法律语料。",
+        "后台下载器独立于模型订阅额度检查获准公共来源；刷新失败时保留最近可用副本。每周维护只用 Codex 的实际重置事件安排自己的周期，不设置美元上限，也不管理所有服务商的套餐。",
+        "本地 OCR、提取、计算和后台下载不需要单独付费调用模型 API。智能体分析仍使用你选择的模型服务商账号或订阅。",
+        "独立复核和绿色工作流状态不会自动把文书变成可提交成品。你要核对事实与法律，决定是否提交，亲自签署，并对案件负责。"
       ],
-      "docs": "想更深：[它到底怎么工作](docs/HOW-IT-WORKS.ru.md)（俄语，没有广告）和[完整参考](docs/DETAILS.md)（含智能体名单）。",
-      "license": "Themiz Community Licence 1.0：个人律师免费使用，包括个人执业；组织需要商业许可。见 [LICENSE](LICENSE) 与 [LICENSE.ru.md](LICENSE.ru.md)。",
-      "welcome": "你好，我是 Fil。\n\n我做忒弥斯是给自己用的：我厌倦了把晚上耗在案件的机械部分——两百页扫描件、核对日期、检查引用。如果它对你也有用，我很高兴。\n\n请试一试。有什么坏了，就开一个 issue，我会看。如果喜欢，请给仓库点个星，并告诉那位还在用手做这一切的同行。也欢迎看看 Olympuz 的其他项目：https://zarubinvibe.com",
-      "compare_header": [
-        "方案",
-        "是什么",
-        "案件材料放在哪",
-        "读你的扫描件",
-        "正反两面的判例",
-        "起草文书",
-        "谁来复核",
-        "价格"
-      ],
-      "compare_note": "名称归各自所有者。此表说明每种方案的用途，而不是评测：别家产品会变，本页不替它们作出承诺。"
+      "docs": "详见[工作流说明](docs/HOW-IT-WORKS.ru.md)和[智能体参考](docs/DETAILS.md)。工作流说明目前为俄语。",
+      "license": "Themiz Community Licence 1.0 允许个人律师免费使用，包括个人执业；组织需要商业许可。模型订阅和第三方服务另行计算。见 [LICENSE](LICENSE) 与 [LICENSE.ru.md](LICENSE.ru.md)。",
+      "welcome": "你好，我是 Fil。\n\n我做 Themiz，是因为夜晚总被案件的机械活吃掉：扫描件、日期、引文，还有对同一目录的又一次翻查。我想要一个工作空间，记得每个事实从哪里来，也会在检查没有完成时直说。\n\n先用一份不含敏感信息的文件副本试运行。遇到故障，请开 issue，附上你执行的命令和看到的结果。如果 Themiz 最终留在你的工作中，给仓库点亮星标，也可以看看其他 Olympuz 项目：https://zarubinvibe.com"
     }
   },
   "stages": {
     "intake": {
-      "en": {
-        "short": "Scans, photos, and documents land in the case folder",
-        "body": "You drop the file into the case folder. Client folders are closed from publication at the repository level, so material stays local.",
-        "result": "one folder per case, with everything the work will need.",
-        "alt": "Themiz workflow stage 1: Hand over the case files, drawn as a wide Pantheon marble scene"
-      },
-      "ru": {
-        "short": "Сканы, фотографии и документы ложатся в папку дела",
-        "body": "Вы кладете материалы в папку дела. Папки доверителей закрыты от публикации на уровне репозитория, поэтому материал остается локальным.",
-        "result": "одна папка на дело, где лежит все, что понадобится в работе.",
-        "alt": "Этап 1 такта Themiz: Передайте материалы дела, показан широкой мраморной сценой Pantheon"
-      },
-      "zh": {
-        "short": "扫描件、照片和文书落进案件目录",
-        "body": "你把材料放进案件目录。当事人目录在仓库层面被禁止发布，材料留在本地。",
-        "result": "一个案子一个目录，后面要用的东西都在里面。",
-        "alt": "Pantheon 宽幅大理石场景：Themiz 工作流程第 1 步，把案件材料交过来"
-      }
+      "en": {"short": "One local folder holds the original case material", "body": "Copy the selected files into the case intake folder. The workflow treats originals as source material and keeps generated notes elsewhere. Repository publication rules exclude client case folders, but you still decide what text is sent to a model provider.", "result": "a bounded case workspace with the source files kept apart from generated work.", "alt": "Pantheon workflow illustration, not a UI screenshot: stage 1, case intake"},
+      "ru": {"short": "Исходные материалы лежат в отдельной папке дела", "body": "Скопируй нужные файлы во входящую папку дела. Workflow считает их исходниками и хранит рабочие заметки отдельно. Правила публикации исключают папки доверителей, но границу передачи текста поставщику модели задаешь ты.", "result": "ограниченная рабочая папка дела, где исходники отделены от результатов.", "alt": "Иллюстрация workflow Pantheon, не снимок интерфейса: шаг 1, прием материалов дела"},
+      "zh": {"short": "一个本地目录保存案件原始材料", "body": "把选定文件复制到案件的 intake 目录。工作流把它们视为原始材料，生成的笔记另行保存。仓库发布规则排除当事人目录，但哪些文字交给模型服务商仍由你决定。", "result": "一个范围清楚的案件工作区，原始材料与生成内容分开保存。", "alt": "Pantheon 工作流插画，并非界面截图：第 1 步，接收案件材料"}
     },
     "extract": {
-      "en": {
-        "short": "Apple Vision recognition, direct text, checksum-verified details",
-        "body": "Recognition runs locally, about a second and a half per page. Registration numbers, case numbers, and amounts are pulled out and checked by their control digit without going online.",
-        "result": "readable text with the key details already verified.",
-        "alt": "Themiz workflow stage 2: Scans are read on your Mac, drawn as a wide Pantheon marble scene"
-      },
-      "ru": {
-        "short": "Распознавание Apple Vision, прямой текст, реквизиты с контрольной суммой",
-        "body": "Распознавание идет локально, примерно полторы секунды на страницу. ИНН, ОГРН, номера дел и суммы вынимаются и проверяются контрольной суммой без выхода в интернет.",
-        "result": "читаемый текст, где ключевые реквизиты уже проверены.",
-        "alt": "Этап 2 такта Themiz: Сканы читаются на вашем Mac, показан широкой мраморной сценой Pantheon"
-      },
-      "zh": {
-        "short": "Apple Vision 识别、直接取文本、带校验位的要素",
-        "body": "识别在本地进行，大约每页一秒半。税号、企业注册号、案号和金额会被提取出来，并用校验位在不联网的情况下核对。",
-        "result": "可读的文本，关键要素已经核对过。",
-        "alt": "Pantheon 宽幅大理石场景：Themiz 工作流程第 2 步，扫描件在你的 Mac 上被读出来"
-      }
+      "en": {"short": "Local extraction routes text, scans, tables, and audio", "body": "Text PDF, DOCX, PPTX, and XLSX go through local extractors. On macOS, Apple Vision handles scans and images; Whisper can transcribe audio when its local runtime and model are available. The router stores text and extracted details beside a content hash. Check case numbers, amounts, and critical details against the original.", "result": "searchable local text with a recorded route and details that still carry a verification duty.", "alt": "Pantheon workflow illustration, not a UI screenshot: stage 2, local document extraction"},
+      "ru": {"short": "Локальный роутер читает текст, сканы, таблицы и аудио", "body": "Текстовые PDF, DOCX, PPTX и XLSX идут через локальные экстракторы. На macOS сканы и изображения читает Apple Vision; Whisper расшифровывает аудио, если доступны локальный runtime и модель. Роутер сохраняет текст и реквизиты рядом с хешем содержимого. Номера дел, суммы и критичные данные сверь с оригиналом.", "result": "текст для поиска с записанным маршрутом и реквизитами, которые еще надо проверить по исходнику.", "alt": "Иллюстрация workflow Pantheon, не снимок интерфейса: шаг 2, локальное извлечение документов"},
+      "zh": {"short": "本地路由读取文本、扫描件、表格和音频", "body": "文本 PDF、DOCX、PPTX 和 XLSX 由本地提取器处理。macOS 上的扫描件与图片交给 Apple Vision；本地运行环境和模型可用时，Whisper 可以转写音频。路由器按内容哈希保存文本和提取要素。案号、金额和关键细节仍要与原件核对。", "result": "可检索的本地文本、明确的处理路线，以及仍需对照原件的提取要素。", "alt": "Pantheon 工作流插画，并非界面截图：第 2 步，本地文档提取"}
     },
     "case-map": {
-      "en": {
-        "short": "Parties, dates, claims, and evidence in one picture",
-        "body": "Facts move from the documents into a single map: who, when, what is claimed, and what proves it. A separate agent cross-checks the readers against each other.",
-        "result": "one place to look instead of rereading the whole file.",
-        "alt": "Themiz workflow stage 3: The case map is built, drawn as a wide Pantheon marble scene"
-      },
-      "ru": {
-        "short": "Стороны, даты, требования и доказательства в одной картине",
-        "body": "Факты переезжают из документов в единую карту: кто, когда, что требует и чем это подтверждается. Отдельный агент сверяет читателей между собой.",
-        "result": "одно место, куда смотреть, вместо перечитывания всего дела.",
-        "alt": "Этап 3 такта Themiz: Строится карта дела, показан широкой мраморной сценой Pantheon"
-      },
-      "zh": {
-        "short": "当事人、日期、诉求和证据放进同一张图",
-        "body": "事实从文书搬进一张统一的地图：谁、什么时候、主张什么、由什么支撑。另有一个智能体把几个阅读者互相对照。",
-        "result": "一个可以直接看的地方，不必再把整个卷宗读一遍。",
-        "alt": "Pantheon 宽幅大理石场景：Themiz 工作流程第 3 步，搭起案件地图"
-      }
+      "en": {"short": "The case map connects facts, claims, evidence, and conflicts", "body": "FAST lets one mapper read a narrow set of no more than six text or already recognised files. FULL assigns readers by format and then reconciles their reports when the bundle is large, scanned, or disputed. Missing and conflicting details stay visible instead of being filled in.", "result": "a case map with sources, open conflicts, and a clear reading boundary.", "alt": "Pantheon workflow illustration, not a UI screenshot: stage 3, case map"},
+      "ru": {"short": "Карта связывает факты, требования, доказательства и конфликты", "body": "В FAST один картограф читает узкий набор: не более шести текстовых или уже распознанных файлов. В FULL материалы делятся между читателями по формату, а их отчеты сверяются, если папка большая, в ней много сканов или чтение спорное. Пропуски и расхождения остаются видимыми.", "result": "карта дела с источниками, открытыми конфликтами и понятной границей чтения.", "alt": "Иллюстрация workflow Pantheon, не снимок интерфейса: шаг 3, карта дела"},
+      "zh": {"short": "案件地图连接事实、诉求、证据和冲突", "body": "FAST 由一个制图角色读取不超过六份文本或已识别文件。材料很多、扫描件复杂或阅读有争议时，FULL 按格式分给多个阅读角色，再核对各自报告。缺失和冲突会保留下来，不会被自动补写。", "result": "一份带来源、未解决冲突和清楚阅读边界的案件地图。", "alt": "Pantheon 工作流插画，并非界面截图：第 3 步，案件地图"}
     },
     "research": {
-      "en": {
-        "short": "Support, procedural moves, and the opponent's best argument",
-        "body": "One agent looks for practice that supports your position, another for procedural moves, and a third deliberately hunts practice against you. The search request is depersonalised.",
-        "result": "both sides of the argument before the other side makes it.",
-        "alt": "Themiz workflow stage 4: Case law for and against, drawn as a wide Pantheon marble scene"
-      },
-      "ru": {
-        "short": "Поддержка, процессуальные ходы и лучший довод оппонента",
-        "body": "Один агент ищет практику за вашу позицию, другой процессуальные ходы, третий намеренно ищет практику против вас. Поисковый запрос уходит обезличенным.",
-        "result": "обе стороны спора до того, как их приведет оппонент.",
-        "alt": "Этап 4 такта Themiz: Практика за вас и против вас, показан широкой мраморной сценой Pantheon"
-      },
-      "zh": {
-        "short": "支持的判例、程序上的招法、对方最好的论点",
-        "body": "一个智能体找支持你立场的判例，另一个找程序上的招法，第三个专门找对你不利的判例。检索请求是去标识化的。",
-        "result": "在对方提出之前，你先看到争议的两面。",
-        "alt": "Pantheon 宽幅大理石场景：Themiz 工作流程第 4 步，正反两面的判例"
-      }
+      "en": {"short": "Research records support, procedural options, and adverse authority", "body": "Research starts with local material and a channel check. FAST normally uses one tactical search. FULL can split the work across supportive, sceptical, and procedural tracks. External requests are depersonalised and use approved sources; if a source is unavailable, the result says so.", "result": "a sourced research record that includes adverse material and named gaps.", "alt": "Pantheon workflow illustration, not a UI screenshot: stage 4, legal research for both sides"},
+      "ru": {"short": "Поиск собирает поддержку, процессуальные ходы и практику против позиции", "body": "Сначала проверяются локальные материалы и доступность каналов. FAST обычно использует одного тактического охотника. FULL делит поиск на поддерживающий, скептический и процессуальный треки. Наружу уходит обезличенный запрос по разрешенному источнику; если источник недоступен, это записывается в результат.", "result": "подборка с источниками, неблагоприятной практикой и названными пробелами.", "alt": "Иллюстрация workflow Pantheon, не снимок интерфейса: шаг 4, правовой поиск за и против"},
+      "zh": {"short": "检索同时记录支持材料、程序方案和不利依据", "body": "检索先检查本地材料和渠道可用性。FAST 通常只启用一个程序策略角色；FULL 可以分成支持、质疑和程序三个方向。外部查询只走获准来源并去除身份信息；来源不可用时，结果会明确写出。", "result": "一份带来源的研究记录，其中包括不利材料和已指出的缺口。", "alt": "Pantheon 工作流插画，并非界面截图：第 4 步，正反两面的法律检索"}
     },
     "council": {
-      "en": {
-        "short": "A position assembled from an argument, not from one opinion",
-        "body": "Five reviewer agents take the position apart from different angles and put it back together. Disagreement is the point: a weak argument is meant to fall here, not in court.",
-        "result": "a position with its weak points already named.",
-        "alt": "Themiz workflow stage 5: Five jurists argue it out, drawn as a wide Pantheon marble scene"
-      },
-      "ru": {
-        "short": "Позиция, собранная из спора, а не из одного мнения",
-        "body": "Пятеро проверяющих агентов разбирают позицию с разных сторон и собирают заново. Несогласие здесь и есть смысл: слабый довод должен упасть тут, а не в заседании.",
-        "result": "позиция, у которой слабые места уже названы.",
-        "alt": "Этап 5 такта Themiz: Пятеро правоведов спорят, показан широкой мраморной сценой Pantheon"
-      },
-      "zh": {
-        "short": "立场来自争论，而不是一个人的意见",
-        "body": "五个审阅智能体从不同角度把立场拆开再拼回去。分歧正是意义所在：脆弱的论点应该倒在这里，而不是在庭上。",
-        "result": "一个已经指出自己弱点的立场。",
-        "alt": "Pantheon 宽幅大理石场景：Themiz 工作流程第 5 步，五位法学家争论"
-      }
+      "en": {"short": "The council reviews the position and is required for L3", "body": "For L2 and L3 matters, several legal roles examine the position from different angles and record disagreements. The council is required for L3. For L2 FAST, it may be skipped only when the lawyer has recorded their own position. The council organises arguments; it does not create independent providers or replace source verification.", "result": "a position with its assumptions, objections, and weak points on the page.", "alt": "Pantheon workflow illustration, not a UI screenshot: stage 5, legal council"},
+      "ru": {"short": "Совет разбирает позицию; на L3 он обязателен", "body": "На уровне L2 и L3 несколько правовых ролей разбирают позицию с разных сторон и записывают разногласия. На L3 совет обязателен. На L2 FAST его можно пропустить, только если юрист зафиксировал свою позицию. Совет упорядочивает аргументы, но не создает независимых поставщиков и не заменяет проверку источников.", "result": "позиция, где видны допущения, возражения и слабые места.", "alt": "Иллюстрация workflow Pantheon, не снимок интерфейса: шаг 5, правовой совет"},
+      "zh": {"short": "评议会审查立场；L3 必须进行评议", "body": "对于 L2 和 L3 事项，多个法律角色从不同角度审查立场，并记录分歧。L3 必须进行评议。L2 FAST 只有在律师已记录自己的立场时才可跳过评议。评议会整理论证，但不会凭空增加独立服务商，也不能代替来源核验。", "result": "一份把假设、反对意见和薄弱处写在纸面上的立场。", "alt": "Pantheon 工作流插画，并非界面截图：第 5 步，法律评议会"}
     },
     "draft": {
-      "en": {
-        "short": "A separate reviewer, format checks, and a personal-data guard",
-        "body": "The document is written by one agent and reviewed by another that did not write it. Assembly before review is refused, the format is checked before filing, and a guard runs over personal data on every commit.",
-        "result": "a draft you edit as a lawyer, not a text you have to re-verify line by line.",
-        "alt": "Themiz workflow stage 6: One writes, another checks, drawn as a wide Pantheon marble scene"
-      },
-      "ru": {
-        "short": "Отдельный проверяющий, проверка формата и сторож персональных данных",
-        "body": "Документ пишет один агент, а проверяет другой, который его не писал. Собрать документ раньше проверки нельзя, формат сверяется перед подачей, а сторож персональных данных проходит по каждому коммиту.",
-        "result": "проект, который вы правите как юрист, а не текст, который надо перепроверять построчно.",
-        "alt": "Этап 6 такта Themiz: Один пишет, другой проверяет, показан широкой мраморной сценой Pantheon"
-      },
-      "zh": {
-        "short": "独立的审阅者、格式检查和个人数据守卫",
-        "body": "文书由一个智能体写，由另一个没写过它的智能体审阅。审阅之前不允许拼装文书，提交之前会核对格式，每次提交都跑一遍个人数据守卫。",
-        "result": "一份你以律师身份去改的草稿，而不是需要逐行复核的文本。",
-        "alt": "Pantheon 宽幅大理石场景：Themiz 工作流程第 6 步，一个写，另一个查"
-      }
+      "en": {"short": "One role drafts; another reviews the same version", "body": "The drafter works from the case contract and recorded sources. A separate reviewer checks facts, citations, position, form, and completeness, then records a controlled verdict. Mechanical guards can stop assembly when required evidence, review, format, or personal-data checks fail. They do not certify legal correctness.", "result": "a reviewed draft and an explicit list of unresolved issues for the lawyer.", "alt": "Pantheon workflow illustration, not a UI screenshot: stage 6, drafting and separate review"},
+      "ru": {"short": "Одна роль пишет, другая проверяет ту же версию", "body": "Составитель работает по контракту дела и записанным источникам. Отдельный рецензент проверяет факты, цитаты, позицию, форму и полноту, затем фиксирует вердикт из закрытого списка. Механические гейты останавливают сборку при сбое доказательств, рецензии, формата или проверки ПД. Юридическую правильность они не удостоверяют.", "result": "проверенный черновик и явный список вопросов, которые остались юристу.", "alt": "Иллюстрация workflow Pantheon, не снимок интерфейса: шаг 6, черновик и отдельная рецензия"},
+      "zh": {"short": "一个角色起草，另一个角色复核同一版本", "body": "起草角色依照案件契约和已记录来源写作。独立复核角色检查事实、引文、立场、格式和完整性，再写入受控结论。证据、复核、格式或个人数据检查失败时，机械闸门可以阻止生成成品，但不会认证法律结论。", "result": "一份经过复核的草稿，以及留给律师处理的明确问题清单。", "alt": "Pantheon 工作流插画，并非界面截图：第 6 步，起草与独立复核"}
     },
     "hearing": {
-      "en": {
-        "short": "Deadlines, a local dashboard, optional Telegram reminders",
-        "body": "Deadlines are calculated with the working calendar and a reference to the rule. A local dashboard shows the state of the work. Reminders go to your own bot, carrying dates only.",
-        "result": "the hearing prepared, and edits you make teach the next document.",
-        "alt": "Themiz workflow stage 7: Hearing prep and reminders, drawn as a wide Pantheon marble scene"
-      },
-      "ru": {
-        "short": "Сроки, локальная панель, необязательные напоминания в Telegram",
-        "body": "Сроки считаются по производственному календарю со ссылкой на норму. Локальная панель показывает состояние работы. Напоминания уходят вашему собственному боту и несут только даты.",
-        "result": "заседание подготовлено, а ваши правки учат следующий документ.",
-        "alt": "Этап 7 такта Themiz: Подготовка к заседанию и напоминания, показан широкой мраморной сценой Pantheon"
-      },
-      "zh": {
-        "short": "期限、本地面板、可选的 Telegram 提醒",
-        "body": "期限按工作日历计算，并附上依据的法条。本地面板显示工作的状态。提醒发给你自己的机器人，只带日期。",
-        "result": "开庭准备就绪，而你的修改会教会下一份文书。",
-        "alt": "Pantheon 宽幅大理石场景：Themiz 工作流程第 7 步，开庭准备与提醒"
-      }
+      "en": {"short": "The hearing pack keeps the checklist, arguments, and deadlines together", "body": "The preparation role builds a hearing checklist from the case map and available positions. Status tools show missing steps and calculated dates with their rule where supported. Telegram reminders are optional. The lawyer checks the file, chooses what to submit, signs it, and appears in court.", "result": "a preparation pack and visible open items, not an automatic filing decision.", "alt": "Pantheon workflow illustration, not a UI screenshot: stage 7, hearing preparation"},
+      "ru": {"short": "Пакет к заседанию держит вместе чеклист, доводы и сроки", "body": "Роль подготовки собирает чеклист по карте дела и доступным позициям. Прибор статуса показывает пропущенные шаги, а поддерживаемые сроки считаются со ссылкой на правило. Telegram-напоминания необязательны. Ты проверяешь комплект, выбираешь, что подать, подписываешь документ и идешь в суд.", "result": "пакет подготовки и видимые открытые вопросы, а не автоматическое решение о подаче.", "alt": "Иллюстрация workflow Pantheon, не снимок интерфейса: шаг 7, подготовка к заседанию"},
+      "zh": {"short": "庭审材料包把清单、论点和期限放在一起", "body": "准备角色依据案件地图和已有立场生成庭审清单。状态工具显示缺失步骤，并在支持的场景中给出期限及所用规则。Telegram 提醒是可选项。你要检查材料、决定提交什么、亲自签署并出庭。", "result": "一份准备材料包和清楚的待办事项，不是自动提交决定。", "alt": "Pantheon 工作流插画，并非界面截图：第 7 步，庭审准备"}
     }
   },
-  "owner_display_name": {
-    "en": "Filipp Zarubin",
-    "ru": "Филипп Зарубин",
-    "zh": "Filipp Zarubin"
-  }
+  "owner_display_name": {"en": "Filipp Zarubin", "ru": "Филипп Зарубин", "zh": "Filipp Zarubin"}
 }

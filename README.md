@@ -1,20 +1,20 @@
 # Themiz
 
-Themiz takes the mechanics of a court case off your desk: it reads the file, hunts case law, and reviews its own documents.
+A working system for a Russian court case: source files, a case map, checked citations, a draft, and a separate review.
 
 [Русский](README.ru.md) · [中文](README.zh.md)
 
 [![License](https://img.shields.io/badge/license-community%201.0-blue.svg)](LICENSE) [![Stars](https://img.shields.io/github/stars/zarubinvibe/themiz?style=flat&color=C9A87A)](https://github.com/zarubinvibe/themiz/stargazers) [![Status](https://img.shields.io/badge/status-in%20development-brightgreen.svg)](https://github.com/zarubinvibe/themiz) [![Olympuz](https://img.shields.io/badge/olympuz-family-B8D6EA.svg)](https://github.com/zarubinvibe/athena#olympuz-family)
 
-<p align="center"><img src="docs/assets/pantheon/hero.png" alt="Themiz in white marble with scales and sword beside the classical column, legal documents and agent review cards laid out in daylight" width="100%"></p>
+<p align="center"><img src="docs/assets/pantheon/hero.png" alt="Pantheon illustration of Themiz in white marble beside a classical column, with case papers and review cards" width="100%"></p>
 
 <!-- owner-welcome:start -->
 
-> Hello. I am Fil.
+> Hello, I am Fil.
 >
-> I built Themiz for myself: I was tired of losing evenings to the mechanical part of a case — two hundred pages of scans, dates to reconcile, citations to check. If it turns out to be useful to you too, I am glad.
+> I built Themiz because evenings kept disappearing into the mechanical part of a case: scans, dates, citations, and another pass through the same bundle. I wanted one workspace that remembers where a fact came from and says plainly when a check did not happen.
 >
-> Please try it. If something breaks, open an issue — I read them. If you like it, star the repository and tell a colleague who still does all of this by hand. And take a look at the other Olympuz projects: https://zarubinvibe.com
+> Try it on a copy of a non-sensitive file first. If something breaks, open an issue with the command you ran and the result you saw. If it earns a place in your practice, star the repository and have a look at the other Olympuz projects: https://zarubinvibe.com
 >
 > — Filipp Zarubin
 
@@ -37,141 +37,163 @@ Themiz takes the mechanics of a court case off your desk: it reads the file, hun
 
 ## What This Is
 
-The project was renamed: Themis is now Themiz, spelled like the rest of the Olympuz family. Old GitHub links still redirect here, but an existing clone or fork needs `git remote set-url` to follow.
+Themiz is a workspace for lawyers handling disputes under Russian law. It keeps each matter in its own folder, reads local files, assembles the facts, searches approved sources, and carries a draft through review. You can run the same project with Codex CLI or Claude Code.
 
-Themiz works next to a lawyer. It reads the file on your computer, builds a case map, hunts practice for you and against you, drafts a document and hands it to a different agent for review. The decisions stay with you, and that is the design, not a disclaimer at the end.
+The public repository contains the engine, agents, tests, and safe templates. It does not contain a ready-made legal corpus or anyone's case files. You choose the sources, permissions, and model provider before using it with client material.
 
 ## Why It Helps
 
-A good lawyer's time does not go into law. Two hundred pages of scans. Reconciling dates. Checking citations. That one detail that was definitely somewhere in volume three. Themiz takes that part whole and leaves you the part where thinking happens.
+Case work gets buried under small, expensive chores: reading another scan, reconciling dates, finding the source of a quotation, checking whether the draft still matches the evidence. Themiz keeps those chores attached to one case and records what passed, what failed, and what still needs a lawyer.
+
+It is built for Russian litigation. Its document contracts, statutory calculations, court terminology, and source routes follow Russian procedure; they are not a general legal system for every jurisdiction.
 
 ## The Main Advantage
 
-**Main advantage:** the numbers and the text of the law come from a program, not from a model.
+**Main advantage:** a claim can keep its trail back to the file, source, and review status.
 
-**Why this is better:** Statutory interest, procedural deadlines, court fees and amounts in words are computed in code. Statutes are quoted from the corpus on your own disk, so a paraphrase cannot quietly replace the article.
+**Why this is better:** Code handles supported calculations such as statutory interest, procedural dates, court fees, and amounts in words. The citation tool reads from the corpus available on your disk, checks its checksum, and warns when freshness is missing or needs review. A model does not get to turn a paraphrase into a verified article.
 
 ## How It Works
 
-A case moves through stages. Each has its own agents, and no document leaves without a second pair of eyes.
+The seven stages below are a working order, not seven mandatory swarms. A narrow matter with no more than six text or already recognised files can use the FAST route. A complex matter, disputed reading, or a large scan bundle uses FULL readers and reconciliation. The Pantheon scenes illustrate that order; they are not screenshots of the interface.
 
 <!-- workflow-diagram:start -->
 
-<p align="center"><img src="docs/assets/pantheon/takt-en.png" alt="Themis workflow in one wide Pantheon marble scene: seven labelled steps from Intake to Hearing, linked by blue threads beside the classical column" width="100%"></p>
+<p align="center"><img src="docs/assets/pantheon/takt-en.png" alt="Themiz workflow illustration: seven labelled stages from Intake to Hearing in a Pantheon marble scene, not an application screenshot" width="100%"></p>
 
 <!-- workflow-diagram:end -->
 
 | Stage | What happens |
 |---|---|
-| 1. Intake | Scans, photos, and documents land in the case folder |
-| 2. Extract | Apple Vision recognition, direct text, checksum-verified details |
-| 3. Case map | Parties, dates, claims, and evidence in one picture |
-| 4. Research | Support, procedural moves, and the opponent's best argument |
-| 5. Council | A position assembled from an argument, not from one opinion |
-| 6. Draft | A separate reviewer, format checks, and a personal-data guard |
-| 7. Hearing | Deadlines, a local dashboard, optional Telegram reminders |
+| 1. Intake | One local folder holds the original case material |
+| 2. Extract | Local extraction routes text, scans, tables, and audio |
+| 3. Case map | The case map connects facts, claims, evidence, and conflicts |
+| 4. Research | Research records support, procedural options, and adverse authority |
+| 5. Council | The council reviews the position and is required for L3 |
+| 6. Draft | One role drafts; another reviews the same version |
+| 7. Hearing | The hearing pack keeps the checklist, arguments, and deadlines together |
 
 ### Step 1: Hand over the case files
 
-You drop the file into the case folder. Client folders are closed from publication at the repository level, so material stays local.
+Copy the selected files into the case intake folder. The workflow treats originals as source material and keeps generated notes elsewhere. Repository publication rules exclude client case folders, but you still decide what text is sent to a model provider.
 
-<p align="center"><img src="docs/assets/pantheon/workflow/01-intake.png" alt="Themiz workflow stage 1: Hand over the case files, drawn as a wide Pantheon marble scene" width="100%"></p>
+<p align="center"><img src="docs/assets/pantheon/workflow/01-intake.png" alt="Pantheon workflow illustration, not a UI screenshot: stage 1, case intake" width="100%"></p>
 
-**You get:** one folder per case, with everything the work will need.
+**You get:** a bounded case workspace with the source files kept apart from generated work.
 
 ### Step 2: Scans are read on your Mac
 
-Recognition runs locally, about a second and a half per page. Registration numbers, case numbers, and amounts are pulled out and checked by their control digit without going online.
+Text PDF, DOCX, PPTX, and XLSX go through local extractors. On macOS, Apple Vision handles scans and images; Whisper can transcribe audio when its local runtime and model are available. The router stores text and extracted details beside a content hash. Check case numbers, amounts, and critical details against the original.
 
-<p align="center"><img src="docs/assets/pantheon/workflow/02-extract.png" alt="Themiz workflow stage 2: Scans are read on your Mac, drawn as a wide Pantheon marble scene" width="100%"></p>
+<p align="center"><img src="docs/assets/pantheon/workflow/02-extract.png" alt="Pantheon workflow illustration, not a UI screenshot: stage 2, local document extraction" width="100%"></p>
 
-**You get:** readable text with the key details already verified.
+**You get:** searchable local text with a recorded route and details that still carry a verification duty.
 
 ### Step 3: The case map is built
 
-Facts move from the documents into a single map: who, when, what is claimed, and what proves it. A separate agent cross-checks the readers against each other.
+FAST lets one mapper read a narrow set of no more than six text or already recognised files. FULL assigns readers by format and then reconciles their reports when the bundle is large, scanned, or disputed. Missing and conflicting details stay visible instead of being filled in.
 
-<p align="center"><img src="docs/assets/pantheon/workflow/03-case-map.png" alt="Themiz workflow stage 3: The case map is built, drawn as a wide Pantheon marble scene" width="100%"></p>
+<p align="center"><img src="docs/assets/pantheon/workflow/03-case-map.png" alt="Pantheon workflow illustration, not a UI screenshot: stage 3, case map" width="100%"></p>
 
-**You get:** one place to look instead of rereading the whole file.
+**You get:** a case map with sources, open conflicts, and a clear reading boundary.
 
 ### Step 4: Case law for and against
 
-One agent looks for practice that supports your position, another for procedural moves, and a third deliberately hunts practice against you. The search request is depersonalised.
+Research starts with local material and a channel check. FAST normally uses one tactical search. FULL can split the work across supportive, sceptical, and procedural tracks. External requests are depersonalised and use approved sources; if a source is unavailable, the result says so.
 
-<p align="center"><img src="docs/assets/pantheon/workflow/04-research.png" alt="Themiz workflow stage 4: Case law for and against, drawn as a wide Pantheon marble scene" width="100%"></p>
+<p align="center"><img src="docs/assets/pantheon/workflow/04-research.png" alt="Pantheon workflow illustration, not a UI screenshot: stage 4, legal research for both sides" width="100%"></p>
 
-**You get:** both sides of the argument before the other side makes it.
+**You get:** a sourced research record that includes adverse material and named gaps.
 
 ### Step 5: Five jurists argue it out
 
-Five reviewer agents take the position apart from different angles and put it back together. Disagreement is the point: a weak argument is meant to fall here, not in court.
+For L2 and L3 matters, several legal roles examine the position from different angles and record disagreements. The council is required for L3. For L2 FAST, it may be skipped only when the lawyer has recorded their own position. The council organises arguments; it does not create independent providers or replace source verification.
 
-<p align="center"><img src="docs/assets/pantheon/workflow/05-council.png" alt="Themiz workflow stage 5: Five jurists argue it out, drawn as a wide Pantheon marble scene" width="100%"></p>
+<p align="center"><img src="docs/assets/pantheon/workflow/05-council.png" alt="Pantheon workflow illustration, not a UI screenshot: stage 5, legal council" width="100%"></p>
 
-**You get:** a position with its weak points already named.
+**You get:** a position with its assumptions, objections, and weak points on the page.
 
 ### Step 6: One writes, another checks
 
-The document is written by one agent and reviewed by another that did not write it. Assembly before review is refused, the format is checked before filing, and a guard runs over personal data on every commit.
+The drafter works from the case contract and recorded sources. A separate reviewer checks facts, citations, position, form, and completeness, then records a controlled verdict. Mechanical guards can stop assembly when required evidence, review, format, or personal-data checks fail. They do not certify legal correctness.
 
-<p align="center"><img src="docs/assets/pantheon/workflow/06-draft.png" alt="Themiz workflow stage 6: One writes, another checks, drawn as a wide Pantheon marble scene" width="100%"></p>
+<p align="center"><img src="docs/assets/pantheon/workflow/06-draft.png" alt="Pantheon workflow illustration, not a UI screenshot: stage 6, drafting and separate review" width="100%"></p>
 
-**You get:** a draft you edit as a lawyer, not a text you have to re-verify line by line.
+**You get:** a reviewed draft and an explicit list of unresolved issues for the lawyer.
 
 ### Step 7: Hearing prep and reminders
 
-Deadlines are calculated with the working calendar and a reference to the rule. A local dashboard shows the state of the work. Reminders go to your own bot, carrying dates only.
+The preparation role builds a hearing checklist from the case map and available positions. Status tools show missing steps and calculated dates with their rule where supported. Telegram reminders are optional. The lawyer checks the file, chooses what to submit, signs it, and appears in court.
 
-<p align="center"><img src="docs/assets/pantheon/workflow/07-hearing.png" alt="Themiz workflow stage 7: Hearing prep and reminders, drawn as a wide Pantheon marble scene" width="100%"></p>
+<p align="center"><img src="docs/assets/pantheon/workflow/07-hearing.png" alt="Pantheon workflow illustration, not a UI screenshot: stage 7, hearing preparation" width="100%"></p>
 
-**You get:** the hearing prepared, and edits you make teach the next document.
+**You get:** a preparation pack and visible open items, not an automatic filing decision.
 
 ## Quickstart
 
-You need a Mac for scan recognition, Python 3.11 or newer, Xcode Command Line Tools, and Claude Code.
+For the verified macOS path you need Python 3.11 or newer and Xcode Command Line Tools. Apple Vision scan recognition runs on macOS. Codex CLI and Claude Code are equal alternatives; use the one you have configured.
 
 ```bash
 git clone https://github.com/zarubinvibe/themiz.git
 cd themiz
 bash install.sh
-
-# дальше открывайте, чем привычнее:
-claude                  # Claude Code
-codex                   # Codex CLI
-code .                  # VS Code: агент открывается внутри редактора
-python3 cockpit/app.py   # только панель в браузере, без агента
+. .venv/bin/activate
 ```
 
-The three lines above are the whole install. `bash install.sh` sets everything up and asks before it installs anything. It needs no agent at all: a plain terminal is enough.
+The shared block only installs the project and activates its Python environment. Then choose one agent client. Do not run both commands as one setup sequence.
 
-**Claude Code.** Run `claude` in the folder and say `/themiz-setup`. The setup goes as a conversation, one question at a time.
+**Option A: Codex CLI**
 
-**Codex CLI.** Run `codex` in the same folder. The same agents and the same rules are already inside the project.
+```bash
+codex
+```
 
-**VS Code or Cursor.** Open the folder with `code .` and start your agent inside the editor.
+Ask Codex to set up Themiz for your practice.
 
-**No agent at all.** `python3 cockpit/app.py` opens the local dashboard at `http://127.0.0.1:8800`, where you can read a case, follow deadlines and collect a document by hand.
+**Option B: Claude Code**
 
-No Git? Take [the ZIP](https://github.com/zarubinvibe/themiz/archive/refs/heads/main.zip) and unpack it. The install is the same.
+```bash
+claude
+```
+
+In Claude Code, run `/themiz-setup`.
+
+To open the folder in an editor:
+
+```bash
+code .
+```
+
+First create the case with an agent. Replace `cases/client/case` with the actual path of an existing case folder. This command gives a summary of that specific case, not a general runtime overview:
+
+```bash
+python3 scripts/themiz_status.py cases/client/case --brief
+```
+
+The optional browser cockpit starts with:
+
+```bash
+.venv/bin/python cockpit/app.py
+```
+
+The cockpit opens locally at `http://127.0.0.1:8800`. Its agent actions currently call Claude Code; for Codex work, use Codex CLI or your editor. No Git? Download the [ZIP](https://github.com/zarubinvibe/themiz/archive/refs/heads/main.zip) and follow the same install steps.
 
 Never done this before? [The onboarding](docs/ONBOARDING.md) walks the whole first run step by step and says what you see after every command.
 
-**You get:** the setup asks about your practice one question at a time, downloads the codes you need first, and ends by testing itself on a real document of yours.
+**You get:** an installed workspace with both CLI configurations, safe starter templates, and a status command. Configure your model access and approved legal sources before opening a live case.
 
 ## Simple Comparison
 
-| Option | What it is | Where the case file lives | Reads your scans | Practice for and against | Drafts the document | Who checks the result | Price |
-|---|---|---|---|---|---|---|---|
-| **Themiz** | Multi-agent assistant for one case | On your Mac | Yes, locally | Yes, both sides | Yes, to the case contract | A second agent, a separate role | Free for an individual lawyer |
-| Doing it by hand | A lawyer and a folder | With you | You read them yourself | As much as the week allows | Yes | You do | Your hours |
-| ConsultantPlus, Garant | Russian legal reference systems | Not for case material | No | Search across statutes and practice | Templates | You do | Subscription |
-| Sudact, the court card index | Open search of court acts | Not for case material | No | Search of acts | No | You do | Free |
-| ChatGPT, Claude as they come | A general chat assistant | In the vendor's cloud | If you attach the file | From the model's memory | Yes | You do | Subscription |
-| Harvey, CoCounsel | Legal AI for firms | In the vendor's cloud | Yes | Yes, for their own jurisdictions | Yes | Depends on the plan | Enterprise contract |
-| Doczilla, FreshDoc | Document assembly | In the vendor's cloud | No | No | Yes, from a template | You do | Subscription |
+| Product | Purpose | Legal sources | Case documents | Drafting | Review |
+|---|---|---|---|---|---|
+| **Themiz** | Workflow for a Russian court case | Local corpus and approved external sources, with source status | Local extraction; you decide what the chosen model provider receives | Procedural documents under the case contract | Separate reviewer and mechanical gates; the lawyer decides whether to file |
+| Manual work | A lawyer works from the case folder | The lawyer checks primary sources | The lawyer reads the originals | The lawyer writes | Full responsibility stays with the lawyer |
+| [ConsultantPlus](https://www.consultant.ru/about/software/cons/) | Russian legal reference system | Legislation, case law, and commentary | Documents supplied by the system; arbitrary case-file upload was not verified | Contract and local-document tools depend on the package | The system flags risks; the user chooses |
+| [Garant](https://udalenka.garant.ru/) | Legal information and support | Legal database, encyclopaedia, and expert materials | Document and approval tools depend on the connected services | Not confirmed on the reviewed product page | Organisation and expert help; the user decides |
+| [ChatGPT](https://help.openai.com/en/articles/9260256) | General AI assistant | Search and deep research depend on settings and plan; no dedicated Russian-law corpus is claimed here | Supports uploaded PDFs, presentations, and text files | Drafting, rewriting, and summarising | No legal acceptance is claimed; the user reviews the result |
+| [Claude](https://claude.com/product/overview) | General AI assistant | Web search and connections are available by setup; no dedicated Russian-law corpus is claimed here | Works with PDFs, Word, Excel, and images | Drafting, editing, and polishing | Can evaluate a draft; legal certification is not claimed and the user remains in control |
 
-Names belong to their owners. The table describes what each option is built for, not a benchmark: other products change, and this page does not promise on their behalf.
+Product names belong to their owners. This is a scope map, not a benchmark. Features and access can vary by service, plan, region, and configuration; follow the linked product pages for current details.
 
 ## Simple Words
 
@@ -182,37 +204,39 @@ Names belong to their owners. The table describes what each option is built for,
 | Command | One instruction you give the computer |
 | Branch | A separate line of changes that does not touch `main` |
 | Pull Request | A request to review your change and accept it |
-| Case map | One file that holds parties, dates, claims, and evidence |
-| Agent | One assistant with a narrow job, such as reading scans or hunting case law |
+| Case map | A file that connects parties, dates, claims, evidence, and open conflicts |
+| Agent | An assistant role with one bounded job, such as reading a document or reviewing a draft |
+| LKG | The last known good local copy, kept readable when a source refresh fails |
 
 ## Safety And Privacy
 
-- Reading and recognition run on your computer; client folders are closed from publication at the repository level.
-- Case law search sends a depersonalised request, never the case file.
-- A cloud check of a single page is allowed only when local recognition returns nothing or a critical detail must be confirmed. There is no silent switch to the cloud.
-- Telegram reminders use your own bot and carry dates and the word "done": no names, case numbers, or amounts.
-- A personal-data guard runs on every commit, and a separate guard refuses to erase case material.
-- Document format is checked before filing, and assembly before review is refused.
+- Files, OCR, extraction caches, and the case workspace stay on your computer. Text sent to an agent is processed under the terms of your chosen model provider; set that boundary before using client material.
+- The public release excludes case folders and the private legal corpus. A personal-data guard checks commits for known patterns, which reduces accidental publication risk but cannot prove that every possible leak is impossible.
+- External legal research uses approved channels and a depersonalised query rather than the case file. A cloud check of a difficult page requires an explicit fallback; there is no silent switch from local OCR.
+- Telegram is optional and off until you configure your own bot. Once enabled, permitted reminder data leaves your computer for Telegram.
+- Mechanical checks cover supported formats, checksums, calculations, and workflow states. They do not certify the law, the evidence, or the final litigation decision.
 
-Before putting client material on a shared computer, read [SECURITY.md](SECURITY.md).
+Before using a shared computer or sending client text to a model, read [SECURITY.md](SECURITY.md) and set the permissions for your practice.
 
 ## Limits
 
-Status: in development, built to work under a lawyer's control. The main path runs through Claude Code.
+Themiz is in development and is designed for work under a lawyer's control. Codex CLI and Claude Code are equal launch paths. The technical contracts and a clean macOS installation are tested; an end-to-end court matter and clean Windows or Linux installation are not certified.
 
-- Local scan recognition depends on Apple Vision and works on macOS only. Text PDF, DOCX, and XLSX are read on other systems too.
-- Case law search depends on an external source and is sometimes unavailable.
-- A red gate or a missing agent stops the workflow instead of guessing.
-- Themiz does not represent you, does not sign anything, and does not replace a lawyer's judgement.
-- A clean install on Windows and Linux has not been verified yet.
+- Apple Vision recognition for scans and images works on macOS only. Text formats use Python tools, but the complete Windows and Linux setup has not been verified.
+- DOCX, text PDF, PPTX, and XLSX conversion passed isolated cold-install checks. Legacy XLS has a configured reader but did not receive the same synthetic conversion check.
+- Legal research and corpus refresh depend on external sources. An unavailable source remains unavailable; it is not replaced with a model guess.
+- The public clone starts with the engine and templates, not a populated legal corpus. After local data is present, Themiz can build a separate legal graph with source and freshness markers. The bundled Graphify files describe the codebase, not your legal corpus.
+- The background loader checks approved public sources independently of model subscription quotas. It keeps the last known good local copy when a refresh fails. Weekly maintenance uses factual Codex reset events for its own cycle and does not impose USD caps or manage every provider's plan.
+- Local OCR, extraction, calculations, and background downloads do not require a paid model API call. Agent analysis still uses the account or subscription of the model provider you choose.
+- A separate reviewer and a green workflow status do not make a document court-ready. You verify the facts and law, decide whether to file, sign the document, and remain responsible for the case.
 
-Deeper: [how it really works](docs/HOW-IT-WORKS.ru.md), in Russian and without advertising, and [the full reference](docs/DETAILS.md) with the agent roster.
+Read [how the workflow works](docs/HOW-IT-WORKS.ru.md) and the [agent reference](docs/DETAILS.md). Both explain the machinery in more detail; the workflow guide is currently in Russian.
 
 ## Star And Contribute
 
 Useful? Give Themiz a star: [https://github.com/zarubinvibe/themiz](https://github.com/zarubinvibe/themiz). It takes a second and it decides whether other people ever find the project.
 
-Want to change something? The path is short: fork the repository, create a branch, commit your change, push the branch, then open a Pull Request. Do not push directly to `main`; the release gate rejects it.
+Want to change something? The path is short: fork the repository, create a branch, commit your change, push the branch, then open a Pull Request. Do not push directly to `main`.
 
 Found a problem instead? Open an issue at [https://github.com/zarubinvibe/themiz/issues](https://github.com/zarubinvibe/themiz/issues) and say what you ran and what happened.
 
@@ -238,4 +262,4 @@ This is one of the public [Olympuz projects](https://github.com/zarubinvibe/athe
 
 ## License
 
-Themiz Community Licence 1.0: free for an individual lawyer, including private practice. Organisations need a commercial licence. See [LICENSE](LICENSE) and [LICENSE.ru.md](LICENSE.ru.md).
+Themiz Community Licence 1.0 permits free use by an individual lawyer, including private practice. Organisations need a commercial licence. Model subscriptions and third-party services are separate. See [LICENSE](LICENSE) and [LICENSE.ru.md](LICENSE.ru.md).
